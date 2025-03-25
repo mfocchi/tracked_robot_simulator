@@ -1,0 +1,16 @@
+ros_impedance_controller:
+  type: ros_impedance_controller/Controller
+  joints:
+    - front_left_wheel_joint
+    - front_right_wheel_joint
+
+
+  gains:
+    front_left_wheel_joint: {p: 10.0, i: 0.0, d: 1.0}
+    front_right_wheel_joint: {p: 10.0, i: 0.0, d: 1.0}
+
+home:
+    front_left_wheel_joint: 0.
+    front_right_wheel_joint: 0.
+
+   

@@ -1,0 +1,73 @@
+<?xml version="1.0" ?>
+<robot name="tractor" xmlns:xacro="http://ros.org/wiki/xacro">
+    
+
+	<xacro:arg name="robot_name" default="tractor"/> 
+	<xacro:arg name="sensors" default="true"/>	
+	<xacro:arg name="arm" default="false"/>	
+	
+
+
+    <xacro:include filename="$(find tractor_description)/gazebo/gazebo.urdf.xacro">
+        <xacro:arg name="task_period" value="$(arg task_period)"/>
+	<xacro:arg name="robot_name" value="$(arg robot_name)"/>
+    </xacro:include>
+
+
+ <xacro:include filename="$(find tractor_description)/robots/maxii.xacro"/>
+  <xacro:include filename="$(find tractor_description)/urdfs/front_wheel.xacro"/>
+  <xacro:include filename="$(find tractor_description)/urdfs/caster_wheel.xacro"/>
+
+  <!-- Accessories -->
+  <xacro:include filename="$(find tractor_description)/urdfs/accessories/gps.xacro"/>
+  <xacro:include filename="$(find tractor_description)/urdfs/accessories/mag.xacro"/>
+  <xacro:include filename="$(find tractor_description)/urdfs/accessories/laser.xacro"/>
+  <xacro:include filename="$(find tractor_description)/urdfs/accessories/intel_realsense.xacro"/>
+  <xacro:include filename="$(find tractor_description)/urdfs/accessories/velodyne_vlp16.xacro"/>
+
+	
+
+
+
+  <xacro:property name="position_left" value="0.305" />
+  <xacro:property name="position_right" value="-0.305" />
+
+  <xacro:maxii/>
+  <xacro:front_wheel left_right="left" radius="0.0856" length="0.02" position="${position_left}"/>
+  <xacro:front_wheel left_right="right" radius="0.0856" length="0.02" position="${position_right}"/>
+  <xacro:caster_wheel name="front" translateX="0.2" translateY="0." radius="0.025" length="0.02"/>
+  <xacro:caster_wheel name="back" translateX="-0.3" translateY="0." radius="0.025" length="0.02"/>
+
+  
+
+  <xacro:if value="$(arg arm)">
+   	<xacro:include filename="$(find z1_description)/urdfs/z1_arm.xacro"/>
+	<xacro:z1_arm parent="base_link">
+		<origin xyz="0 0 0.15" rpy="0 0 0"/>
+	</xacro:z1_arm>
+ </xacro:if>
+
+
+  <!-- SENSORS-->
+  <!--xacro:robot_gps x="0.05" y="0" z="0.1875" gps_size="0.1"/-->
+  <!--xacro:robot_mag x="0" y="0.0" z="0.1" mag_size="0.1"/-->
+  <!-- <xacro:robot_laser x="0.0" y="0.0" z="0.245" laser_size="0.1"/> -->
+  <!--xacro:intel_realsense x="0.1" y="0.0" z="0.5"/-->
+  
+     <xacro:if value="$(arg sensors)">	
+          <xacro:VLP-16 parent="base_link" name="rslidar" topic="/lidar_points"
+                organize_cloud="true" hz="10" gpu="true">
+    	  <origin xyz="0.0 0 0.3" rpy="0 0 0" />
+  	</xacro:VLP-16>
+  	
+  	<xacro:robot_gps x="0.0" y="0.0" z="0.0" gps_size= "0.1"/>
+
+ 	
+    </xacro:if>
+ 
+
+
+
+
+    
+</robot>

@@ -1,0 +1,21 @@
+<?xml version="1.0" ?>
+<launch>
+
+	<arg name="rviz_conf" default="$(find tractor_description)/rviz/conf.rviz"/>
+
+	<arg name="robot_name" default="tractor" />
+
+	<!-- send  urdf to param server and spawn it -->
+	<include file="$(find tractor_description)/launch/upload.launch"/>
+	
+	
+        <!-- rviz stuff -->
+        <!-- 5- load robot_state_publisher: converts joint states to TF transforms, it is just for rviz, etc -->
+        <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" respawn="false" output="screen">
+		<remap from="/joint_states" to="/$(arg robot_name)/joint_states"/> 
+	</node>
+	<!-- run rviz -->
+	<node name="rviz" pkg="rviz" type="rviz" args="-d $(arg rviz_conf) -f world"/>
+
+</launch>
+

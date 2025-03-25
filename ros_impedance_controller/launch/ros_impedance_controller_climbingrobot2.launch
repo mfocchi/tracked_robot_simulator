@@ -1,0 +1,95 @@
+<?xml version="1.0" ?>
+<launch>
+        <arg name="robot_name" default="climbingrobot2" />
+        <arg name="rviz" default="true" />
+        <arg name="gui" default="true" />
+        <arg name="rviz_conf" default="$(find climbingrobot_description)/rviz/conf.rviz"/>
+	<arg name="task_period" default="0.001" />
+	<arg name="world_name" default="climbingrobot2.world"/>
+
+	<!-- anchors-->
+	<arg name="spawn_x" default="0.0" />
+	<arg name="spawn_y" default="0.0" />
+	<arg name="spawn_z" default="2.0" />
+	<arg name="spawn_2x" default="0.0" />
+	<arg name="spawn_2y" default="0.0" />
+	<arg name="spawn_2z" default="2.0" />
+	
+	<!-- wall-->
+	<arg name="wall_inclination" default="0.0" />
+	<!-- new way: place mountain wrt to world (thickness)-->
+	<arg name="mountain_pos_x" value="-0.05"/>	
+
+	<!-- obstacle-->	
+	<arg name="obstacle" default="false" />
+	<arg name="obstacle_location_x" default="0.0" />
+	<arg name="obstacle_location_y" default="0.0" />
+	<arg name="obstacle_location_z" default="0.0" />
+	<arg name="obstacle_size_x" default="0.0" />
+	<arg name="obstacle_size_y" default="0.0" />
+	<arg name="obstacle_size_z" default="0.0" />
+	<arg name="double_propeller" default="false" />
+
+        <!-- load robot name into param server-->
+        <param name="robot_name" type="str" value="$(arg robot_name)" />
+
+	<!-- 1 load robot description into param server-->    
+     	<include file="$(find climbingrobot_description)/launch/upload.launch">
+     		<arg name="robot_name" value="$(arg robot_name)"/>	
+		<arg name="task_period" value="$(arg task_period)"/>  
+		<arg name="spawn_x" value="$(arg spawn_x)"/> 
+		<arg name="spawn_y" value="$(arg spawn_y)"/> 
+		<arg name="spawn_z" value="$(arg spawn_z)"/> 
+		<arg name="spawn_2x" value="$(arg spawn_2x)"/> 
+		<arg name="spawn_2y" value="$(arg spawn_2y)"/> 
+		<arg name="spawn_2z" value="$(arg spawn_2z)"/> 
+		<arg name="wall_inclination" value="$(arg wall_inclination)"/> 
+		<arg name="obstacle" value="$(arg obstacle)"/> 
+		<arg name="obstacle_location_x" value="$(arg obstacle_location_x)"/> 
+		<arg name="obstacle_location_y" value="$(arg obstacle_location_y)"/> 
+		<arg name="obstacle_location_z" value="$(arg obstacle_location_z)"/> 
+		<arg name="obstacle_size_x" value="$(arg obstacle_size_x)"/> 
+		<arg name="obstacle_size_y" value="$(arg obstacle_size_y)"/> 
+		<arg name="obstacle_size_z" value="$(arg obstacle_size_z)"/>
+		<arg name="double_propeller" value="$(arg double_propeller)"/>  "/>   
+	</include>
+     
+     	<!-- 2 launch gzserver (with empty world)/ gzcclient: Starts Gazebo and load the empty world if requested to do so - -->
+        <include file="$(find gazebo_ros)/launch/empty_world.launch" >
+		<arg name="world_name" value="$(find climbingrobot_description)/config/$(arg world_name)"/>
+                <arg name="paused" default="false" />
+                <arg name="use_sim_time" default="true" />
+                <arg name="gui" value="$(arg gui)" />
+                <arg name="headless" default="false" />
+                <arg name="debug" default="false" />
+                <arg name="verbose" value="true" />
+        </include>
+
+
+
+        <!-- 3 Spawn a robot (described in robot_description) into Gazebo -->
+        <node name="spawn_gazebo_model" pkg="gazebo_ros" type="spawn_model" args="-urdf -param robot_description -model $(arg robot_name)"/>
+	
+        <node name="spawn_gazebo_model2" pkg="gazebo_ros" type="spawn_model" args="-urdf -param climb_wall -model climb_wall -x $(arg mountain_pos_x)"/>
+	
+
+	<!-- 4 -Loading  controllers settings -->
+	<rosparam file="$(find ros_impedance_controller)/config/joint_state_publisher.yaml" ns="/$(arg robot_name)" command="load"/> 		
+        <rosparam file="$(find climbingrobot_description)/config/ros_impedance_controller_$(arg robot_name).yaml" ns="/$(arg robot_name)" command="load"/>
+
+        <!-- 5  - Loading the controllers (joint state publisher (install ros-kinetic-joint-state-controller) is necessary for robot_state publisher to compute the TFs) -->
+	<node name="ros_impedance_controller" pkg="controller_manager" type="spawner" respawn="false"
+		output="screen" ns="/$(arg robot_name)"  args="joint_state_publisher ros_impedance_controller" />
+	
+        <!--  rviz stuff -->
+        <!-- 6- load robot_state_publisher: converts joint states to TF transforms, it is just for rviz, etc -->
+        <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" respawn="false" output="screen">
+		 <remap from="/joint_states" to="/$(arg robot_name)/joint_states"/> 
+	</node>
+        <!-- 7 run rviz -->
+        <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg rviz_conf) -f world" if="$(arg rviz)"/>
+
+	
+
+</launch>
+

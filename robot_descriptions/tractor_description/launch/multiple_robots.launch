@@ -1,0 +1,79 @@
+<?xml version="1.0" ?>
+<launch>
+	<arg name="robot_name1"  default="tractor0" />
+	<arg name="robot_name2"  default="tractor1" />
+	<arg name="robot_name3"  default="tractor2" />
+	<arg name="robot_name4"  default="tractor3" />
+	<arg name="robot_name5"  default="tractor4" />
+
+        <arg name="test" default="false"/>
+
+       <arg name="task_period" default="0.004"/>
+       <arg name="arm" default="false"/>
+       <arg name="rviz_conf" default="$(find tractor_description)/rviz/multiple_robots.rviz"/>
+
+
+  	<group ns="$(arg robot_name2)">
+		<param name="tf_prefix" value="$(arg robot_name1)" />
+	        <param name="robot_description" command="$(find xacro)/xacro --inorder '$(find tractor_description)/robots/tractor.urdf.xacro' task_period:=$(arg task_period) arm:=$(arg arm)"/>
+     		<node pkg="robot_state_publisher" type="robot_state_publisher"   name="robot_state_publisher" output="screen"/>
+		<group if="$(arg test)">
+        		<node name="joint_state_publisher" pkg="joint_state_publisher_gui" type="joint_state_publisher_gui"/>
+		</group>
+	</group>
+
+  	<group ns="$(arg robot_name3)">
+		<param name="tf_prefix" value="$(arg robot_name2)" />
+	        <param name="robot_description" command="$(find xacro)/xacro --inorder '$(find tractor_description)/robots/tractor.urdf.xacro' task_period:=$(arg task_period) arm:=$(arg arm)"/>
+     		<node pkg="robot_state_publisher" type="robot_state_publisher"   name="robot_state_publisher" output="screen"/>
+		<group if="$(arg test)">
+        		<node name="joint_state_publisher" pkg="joint_state_publisher_gui" type="joint_state_publisher_gui"/>
+		</group>
+	</group>
+ 	
+  	<group ns="$(arg robot_name1)">
+		<param name="tf_prefix" value="$(arg robot_name3)" />
+	        <param name="robot_description" command="$(find xacro)/xacro --inorder '$(find tractor_description)/robots/tractor.urdf.xacro' task_period:=$(arg task_period) arm:=$(arg arm)"/>
+     		<node pkg="robot_state_publisher" type="robot_state_publisher"   name="robot_state_publisher" output="screen"/>
+		<group if="$(arg test)">
+        		<node name="joint_state_publisher" pkg="joint_state_publisher_gui" type="joint_state_publisher_gui"/>
+		</group>
+	</group>
+
+  	<group ns="$(arg robot_name4)">
+		<param name="tf_prefix" value="$(arg robot_name4)" />
+	        <param name="robot_description" command="$(find xacro)/xacro --inorder '$(find tractor_description)/robots/tractor.urdf.xacro' task_period:=$(arg task_period) arm:=$(arg arm)"/>
+     		<node pkg="robot_state_publisher" type="robot_state_publisher"   name="robot_state_publisher" output="screen"/>
+		<group if="$(arg test)">
+        		<node name="joint_state_publisher" pkg="joint_state_publisher_gui" type="joint_state_publisher_gui"/>
+		</group>
+	</group>	
+
+
+  	<group ns="$(arg robot_name5)">
+		<param name="tf_prefix" value="$(arg robot_name5)" />
+	        <param name="robot_description" command="$(find xacro)/xacro --inorder '$(find tractor_description)/robots/tractor.urdf.xacro' task_period:=$(arg task_period) arm:=$(arg arm)"/>
+     		<node pkg="robot_state_publisher" type="robot_state_publisher"   name="robot_state_publisher" output="screen"/>
+		<group if="$(arg test)">
+        		<node name="joint_state_publisher" pkg="joint_state_publisher_gui" type="joint_state_publisher_gui"/>
+		</group>
+	</group>
+
+	<!-- run rviz -->
+	<node name="rviz" pkg="rviz" type="rviz" args="-d $(arg rviz_conf) -f world"/>
+
+	<!-- if this is false you should publish this in the code ! together with robotname/joint states -->
+	<group if="$(arg test)">	   
+		<node pkg="tf" type="static_transform_publisher" name="world_broadcaster1" args="0 0 0.25 0 0 0 1  world $(arg robot_name1)/base_link 100"/>
+		<node pkg="tf" type="static_transform_publisher" name="world_broadcaster2" args="1 0 0.25 0 0 0 1  world  $(arg robot_name2)/base_link 100"/>
+		<node pkg="tf" type="static_transform_publisher" name="world_broadcaster3" args="-1 0 0.25 0 0 0 1  world  $(arg robot_name3)/base_link 100"/>
+		<node pkg="tf" type="static_transform_publisher" name="world_broadcaster4" args="0 -1 0.25 0 0 0 1  world  $(arg robot_name4)/base_link 100"/>
+		<node pkg="tf" type="static_transform_publisher" name="world_broadcaster5" args="0 1 0.25 0  0 0 1  world  $(arg robot_name5)/base_link 100"/>
+    	</group>
+
+
+
+
+
+</launch>
+

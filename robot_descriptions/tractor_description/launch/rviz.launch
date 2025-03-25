@@ -1,0 +1,40 @@
+<?xml version="1.0" ?>
+<launch>
+
+	<arg name="rviz_conf" default="$(find tractor_description)/rviz/conf.rviz"/>
+	<arg name="arm" default="false"/>
+	<arg name="mesh_name" default="terrain.stl"/>
+	<arg name="terrain_scale_x" default="1"/>
+	<arg name="terrain_scale_y" default="1"/>
+	<arg name="terrain_scale_z" default="1"/>
+	
+	
+	<!-- send hyq urdf to param server and spawn it -->
+	<include file="$(find tractor_description)/launch/upload.launch">
+		<arg name="arm" value="$(arg arm)" />
+	</include>
+	
+	
+	<node pkg="tf" type="static_transform_publisher" name="world_broadcaster" args="0 0 0 0 0 0   /base_link /world 1000"/>
+
+
+	<param name="terrain_description" command="$(find xacro)/xacro --inorder '$(find tractor_description)/robots/terrain.urdf.xacro'  mesh_name:=$(arg mesh_name) terrain_scale_x:=$(arg terrain_scale_x) 
+																terrain_scale_y:=$(arg terrain_scale_y) terrain_scale_z:=$(arg terrain_scale_z)" />
+
+	<node pkg="tf" type="static_transform_publisher" name="terrain_broadcaster" args="0 0 0 0 0 0   /base_link /terrain 1000"/>
+
+   	<!-- joint_state_publisher publish joint states from sliders-->
+        <node name="joint_state_publisher" pkg="joint_state_publisher_gui" type="joint_state_publisher_gui"/>
+
+
+	<node name="robot_state_publisher" pkg="robot_state_publisher"
+		type="robot_state_publisher" respawn="true">
+		<param name="publish_frequency" value="1000" />
+		<param name="rate" value="1000" />
+	</node>
+
+	<!-- run rviz -->
+	<node name="rviz" pkg="rviz" type="rviz" args="-d $(arg rviz_conf) -f world" output="screen"/>
+
+</launch>
+

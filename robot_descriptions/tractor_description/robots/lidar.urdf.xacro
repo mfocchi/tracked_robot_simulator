@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+
+
+  
+<robot name="lidar" xmlns:xacro="http://ros.org/wiki/xacro">  
+  
+  
+<xacro:include filename="$(find tractor_description)/urdfs/accessories/velodyne_vlp16.xacro"/>
+<xacro:include filename="$(find tractor_description)/urdfs/accessories/gps.xacro"/>  
+
+
+<link name = "base_link">
+</link>
+
+<xacro:VLP-16 parent="base_link" name="rslidar" topic="/lidar_points"
+organize_cloud="true" hz="10" gpu="true">
+	<origin xyz="0.0 0 0.3" rpy="0 0 0" />
+</xacro:VLP-16>
+
+<!--xacro:robot_gps x="0.0" y="0.0" z="0.0" gps_size= "0.1"/-->
+
+	
+
+<gazebo>
+    <static>true</static>
+</gazebo>
+
+
+</robot>
