@@ -187,6 +187,7 @@ IDENT_TYPE='NONE'
 PLANNING =  'none'
 ADD_NOISE=False
 STATISTICAL_ANALYSIS = False
+p0 = np.array([15., 2., 0.])
 ```
 
 2. run **closed_loop_simulation.py** 
