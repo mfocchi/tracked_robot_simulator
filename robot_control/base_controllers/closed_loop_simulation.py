@@ -40,11 +40,12 @@ from base_controllers.tracked_robot.simulator.tracked_vehicle_simulator3d import
 from base_controllers.utils.common_functions import getRobotModelFloating
 from base_controllers.utils.common_functions import checkRosMaster
 from base_controllers.utils.common_functions import spawnModel, launchFileNode
-
+from base_controllers.tracked_robot.regressor.NN.inference_nn import SlipNN
 import pandas as pd
 from gazebo_msgs.msg import ModelState
 from gazebo_msgs.srv import SetModelState
 from gazebo_msgs.srv import SetModelStateRequest
+from rosgraph_msgs.msg import Clock
 
 robotName = "tractor" # needs to inherit BaseController
 
@@ -54,25 +55,24 @@ class GenericSimulator(BaseController):
         super().__init__(robot_name=robot_name, external_conf = conf)
         self.torque_control = False
         print("Initialized tractor controller---------------------------------------------------------------")
-        self.SIMULATOR = 'biral'#, 'gazebo(unicycle)', 'coppelia'(deprecated), 'biral'(2d) 'biral3d'
+        self.SIMULATOR = 'distributed2d'#, 'gazebo(unicycle)', 'coppelia'(deprecated), 'distributed2d'(2d) 'distributed3d'
         self.NAVIGATION = 'none'  # 'none', '2d' , '3d'
-        self.TERRAIN = False #True: slopes False: flat
+        self.TERRAIN = False #True: Slopes False: Flat terrain
 
         self.STATISTICAL_ANALYSIS = False #samples targets and orientations in a given space around the robot and compute average tracking error
         self.ControlType = 'CLOSED_LOOP_SLIP_0' #'OPEN_LOOP' 'CLOSED_LOOP_UNICYCLE' 'CLOSED_LOOP_SLIP_0' 'CLOSED_LOOP_SLIP'
-        self.SIDE_SLIP_COMPENSATION = 'NN'#'NN', 'EXP(not used)', 'NONE'
-        self.LONG_SLIP_COMPENSATION = 'NN'#'NN', 'EXP(not used)', 'NONE'
-        self.SLIPPAGE_INFERENCE_TYPE = 'decision_trees'
+        self.SIDE_SLIP_COMPENSATION = 'MACHINE_LEARNING' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
+        self.LONG_SLIP_COMPENSATION = 'MACHINE_LEARNING' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
+        self.SLIPPAGE_INFERENCE_TYPE = 'decision_trees'  # 'decision_trees','interpolator' , 'NN' (deprecated)
         self.ESTIMATE_ALPHA_WITH_ACTUAL_VALUES = True # makes difference for v >= 0.4
 
         # Parameters for open loop identification
-        self.IDENT_TYPE = 'NONE' # 'V_OMEGA', 'WHEELS', 'NONE'
-        self.IDENT_MAX_WHEEL_SPEED = 18 #used only when IDENT_TYPE = 'WHEELS' 7/12
-        self.IDENT_LONG_SPEED = 0.2  #used only when IDENT_TYPE = 'V_OMEGA' 0.2, 0.55 (riccardo)
-        self.IDENT_DIRECTION = 'left' #used only when IDENT_TYPE = 'V_OMEGA'
+        self.IDENT_TYPE = 'NONE' # 'V_OMEGA(deprecated)', 'WHEELS', 'NONE'
+        self.IDENT_LONG_SPEED = 0.2  #used only when IDENT_TYPE = 'V_OMEGA' (deprecated)
+        self.IDENT_DIRECTION = 'left' #used only when IDENT_TYPE = 'V_OMEGA' (deprecated)
 
-        #biral friction coeff
-        self.friction_coefficient = 0.4 # 0.1 (used only in 2d)/0.4 (2d and 3d) (used for planning in paper)/0.6 (only 3d)  with slopes we need high friction otherwise alpha is too high
+        #distributed friction coeff
+        self.friction_coefficient = 0.4 # 0.1 (used only in 2d) / 0.4 (2d and 3d) (used for planning in paper)/ 0.6 (only 3d)  with slopes we need high friction otherwise alpha is too high
 
         # initial pose
         self.p0 = np.array([0., 0., 0.])
@@ -92,7 +92,7 @@ class GenericSimulator(BaseController):
         self.coppeliaModel=f'tractor_ros_0.3_slope.ttt'
 
         if self.SIMULATOR == 'gazebo' and not self.ControlType=='CLOSED_LOOP_UNICYCLE' and not self.ControlType=='OPEN_LOOP':
-            print(colored("Gazebo Model has no slippage, use self.SIMULATOR:=biral","red"))
+            print(colored("Gazebo Model has no slippage, use self.SIMULATOR:=distributed2d","red"))
             sys.exit()
         if self.NAVIGATION !='none':
             #add custom models from wolf, need to clone git@github.com:graiola/wolf_gazebo_resources.git
@@ -117,11 +117,27 @@ class GenericSimulator(BaseController):
                 # self.model_alpha = self.eng.load(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/training.mat')['alpha_model_18']
                 # self.model_beta_l = self.eng.load(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/training.mat')['beta_l_model_18']
                 # self.model_beta_r = self.eng.load(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/training.mat')['beta_r_model_18']
-        except:
+            elif  self.SLIPPAGE_INFERENCE_TYPE=='NN':
+                self.model_beta_l = SlipNN(output='beta_l')
+                self.model_beta_r = SlipNN(output='beta_r')
+                self.model_alpha = SlipNN(output='alpha')
+            elif self.SLIPPAGE_INFERENCE_TYPE=='interpolator':
+                from scipy.interpolate import RBFInterpolator
+                data = os.environ['LOCOSIM_DIR']+f'/robot_control/base_controllers/tracked_robot/regressor/ident_wheels_sim_2d_'+str(self.friction_coefficient)+'.csv'
+                df = pd.read_csv(data, skiprows=1, names=['wheel_l', 'wheel_r', 'beta_l', 'beta_r', 'alpha']) #skiprows skips the first row which are the labels
+                x = df[['wheel_l', 'wheel_r']].values
+                y = df[['beta_l', 'beta_r', 'alpha']].values
+                # upsampling
+                # Fit an interpolator for each output dimension
+                self.model_beta_l = RBFInterpolator(x, y[:, 0], smoothing=0.1)
+                self.model_beta_r = RBFInterpolator(x, y[:, 1], smoothing=0.1)
+                self.model_alpha = RBFInterpolator(x, y[:, 2], smoothing=0.1)
+        except Exception as e:
+            print(colored(f"Error initializing slippage inference model:{e}","red"))
             self.model_beta_l = None
             self.model_beta_r = None
             self.model_alpha = None
-            print(colored(f"No NN model for need for friction coefficient {self.friction_coefficient}, you need to generate the models by running tracked_robot/regressor/model_slippage_updated.py","red"))
+            print(colored(f"No Machine Learning  model for need for friction coefficient {self.friction_coefficient}, you need to generate the models by running tracked_robot/regressor/model_slippage_updated.py","red"))
         ## add your variables to initialize here
         self.ctrl_v = 0.
         self.ctrl_omega = 0.0
@@ -235,25 +251,29 @@ class GenericSimulator(BaseController):
         elif self.SIMULATOR == 'coppelia':
            self.coppeliaManager = CoppeliaManager(self.coppeliaModel, self.USE_GUI)
            self.coppeliaManager.startSimulator()
-        else: # Biral simulator biral2d/biral3d
+        else: # Biral simulator distributed2d/distributed3d
             os.system("killall rosmaster rviz gzserver coppeliaSim")
             # launch roscore
             checkRosMaster()
             ros.sleep(1.5)
             if self.friction_coefficient == 0.1: #should match with training region (very slippery only on flat)
                 constants.MAXSPEED_RADS_PULLEY = 10.
-            if self.friction_coefficient == 0.4: #should match with training region
+                self.IDENT_MAX_WHEEL_SPEED = 10.  # used only when IDENT_TYPE = 'WHEELS' 7/12
+            if self.friction_coefficient == 0.4 or self.friction_coefficient == 0.6: #should match with training region
                 constants.MAXSPEED_RADS_PULLEY = 18.
-                    # run robot state publisher + load robot description + rviz
+                self.IDENT_MAX_WHEEL_SPEED = 18.
+                # run robot state publisher + load robot description + rviz
             launchFileGeneric(rospkg.RosPack().get_path('tractor_description') + "/launch/rviz_nojoints.launch")
-            if self.SIMULATOR == 'biral3d':
+            if self.SIMULATOR == 'distributed3d':
                 print(colored("SIMULATION 3D is unstable for dt > 0.001, resetting dt=0.001 and increased 5x buffer_size", "red"))
                 conf.robot_params[self.robot_name]['buffer_size'] *= 5
                 conf.robot_params[p.robot_name]['dt'] = 0.001
                 groundParams = Ground3D(friction_coefficient=self.friction_coefficient, terrain_stiffness=1e05, terrain_damping=0.5e04)
                 self.tracked_vehicle_simulator = TrackedVehicleSimulator3D(dt=conf.robot_params[p.robot_name]['dt'],  ground=groundParams, USE_MESH=self.TERRAIN, enable_visuals=False, contact_distribution=False)
                 self.flag3D='_3d_'
-            else: #'biral':
+            else: #'distributed2d':
+                if (self.friction_coefficient != 0.4) or (self.friction_coefficient != 0.1):
+                    print(colored("wrong friction coeff, can be 0.1 or 0.4"))
                 groundParams = Ground(friction_coefficient=self.friction_coefficient)
                 self.tracked_vehicle_simulator = TrackedVehicleSimulator(dt=conf.robot_params[p.robot_name]['dt'], ground=groundParams)
                 self.flag3D=''
@@ -263,7 +283,7 @@ class GenericSimulator(BaseController):
             if self.IDENT_TYPE!='NONE':
                 self.PLANNING = 'none'
                 self.groundtruth_pub = ros.Publisher("/" + self.robot_name + "/ground_truth", Odometry, queue_size=1, tcp_nodelay=True)
-                if self.IDENT_TYPE == 'WHEELS' and self.SIMULATOR == 'biral3d':
+                if self.IDENT_TYPE == 'WHEELS' and self.SIMULATOR == 'distributed3d':
                     self.TERRAIN = True
             if self.NAVIGATION!='none' and self.TERRAIN: #need to launch empty gazebo to emulate the lidar
                 launchFileNode(package='gazebo_ros', launch_file='empty_world.launch', additional_args = ['use_sim_time:=true','gui:=false','paused:=false'])
@@ -278,7 +298,11 @@ class GenericSimulator(BaseController):
         super().loadModelAndPublishers()
         self.reset_joints_client = ros.ServiceProxy('/gazebo/set_model_configuration', SetModelConfiguration)
         self.des_vel = ros.Publisher("/des_vel", JointState, queue_size=1, tcp_nodelay=True)
-        if self.TERRAIN and self.SIMULATOR=='biral3d': #terrain is only available in biral 3d
+
+        self.clock_pub = ros.Publisher('/clock', Clock, queue_size=10)
+
+
+        if self.TERRAIN and self.SIMULATOR=='distributed3d': #terrain is only available in distributed3d
             from base_controllers.tracked_robot.simulator.terrain_manager import TerrainManager
             self.terrainManager = TerrainManager(rospkg.RosPack().get_path('tractor_description') + "/meshes/terrain.stl")
             self.tracked_vehicle_simulator.setTerrainManager(self.terrainManager)
@@ -334,7 +358,7 @@ class GenericSimulator(BaseController):
                 if p.IDENT_TYPE=='V_OMEGA':
                     bag_name= f"ident_sim_longv_{p.IDENT_LONG_SPEED}_{p.IDENT_DIRECTION}_fr_{p.friction_coefficient}.bag"
                 if p.IDENT_TYPE == 'WHEELS':
-                    if p.SIMULATOR=='biral3d':
+                    if p.SIMULATOR=='distributed3d':
                         bag_name = f"ident_sim_fr_{p.friction_coefficient}_ramp_{p.RAMP_INCLINATION}_wheelL_{p.IDENT_WHEEL_L}.bag"
                     else:
                         bag_name = f"ident_sim_wheelL_{p.IDENT_WHEEL_L}.bag"
@@ -343,8 +367,7 @@ class GenericSimulator(BaseController):
                 bag_name = f"{p.ControlType}_Long_{self.LONG_SLIP_COMPENSATION}_Side_{p.SIDE_SLIP_COMPENSATION}.bag"
             self.recorder = RosbagControlledRecorder(bag_name=bag_name)
 
-
-    # This will be used instead of the basecontroller one, I do it just to check frequency
+    # This will be used instead of the basecontroller one, I do it just to check frequency!
     def _receive_jstate(self, msg):
         for msg_idx in range(len(msg.name)):
             for joint_idx in range(len(self.joint_names)):
@@ -353,20 +376,21 @@ class GenericSimulator(BaseController):
                     self.qd[joint_idx] = msg.velocity[msg_idx]
                     self.tau[joint_idx] = msg.effort[msg_idx]
 
-        #check frequency of publishing
+    def checkLoopFrequency(self):
+        # check frequency of publishing
         if hasattr(self, 'check_time'):
-            loop_time = ros.Time.now().to_sec() - self.check_time #actual publishing time interval
-            ros_loop_time = self.slow_down_factor * conf.robot_params[p.robot_name]['dt']*self.decimate_publish #ideal publishing time interval
+            loop_time = ros.Time.now().to_sec() - self.check_time  # actual publishing time interval
+            ros_loop_time = self.slow_down_factor * conf.robot_params[p.robot_name]['dt'] * self.decimate_publish  # ideal publishing time interval
             if loop_time > 1.3 * (ros_loop_time):
-                loop_real_freq = 1/loop_time #actual publishing frequency
-                freq_ros = 1 / ros_loop_time #ideal publishing frequency
-                print(colored(f"freq mismatch beyond 30%: loop is running at {loop_real_freq} Hz while it should run at {freq_ros} Hz, freq error is {(freq_ros-loop_real_freq)/freq_ros*100} %", "red"))
+                loop_real_freq = 1 / loop_time  # actual publishing frequency
+                freq_ros = 1 / ros_loop_time  # ideal publishing frequency
+                print(colored(f"freq mismatch beyond 30%: loop is running at {loop_real_freq} Hz while it should run at {freq_ros} Hz, freq error is {(freq_ros - loop_real_freq) / freq_ros * 100} %", "red"))
                 self.out_of_frequency_counter += 1
                 if self.out_of_frequency_counter > 10:
                     original_slow_down_factor = self.slow_down_factor
                     self.slow_down_factor *= 2
                     self.rate = ros.Rate(1 / (self.slow_down_factor * conf.robot_params[p.robot_name]['dt']))
-                    print(colored(f"increasing slow_down_factor from {original_slow_down_factor} to {self.slow_down_factor}","red"))
+                    print(colored(f"increasing slow_down_factor from {original_slow_down_factor} to {self.slow_down_factor}", "red"))
                     self.out_of_frequency_counter = 0
 
         self.check_time = ros.Time.now().to_sec()
@@ -450,7 +474,7 @@ class GenericSimulator(BaseController):
             self.slow_down_factor = 8
 
         else:#Biral
-            if self.SIMULATOR=='biral3d':
+            if self.SIMULATOR=='distributed3d':
                 self.terrain_consistent_pose_init=np.array([self.p0[0], self.p0[1], 0, 0, 0, 0])
                 if self.TERRAIN: #ramp and mesh
                     start_position, start_roll, start_pitch, start_yaw = p.terrainManager.project_on_mesh(point=self.terrain_consistent_pose_init[:2], direction=np.array([0., 0., 1.]))
@@ -514,26 +538,33 @@ class GenericSimulator(BaseController):
 
             #plotJoint('position', p.time_log, q_log=p.q_log, q_des_log=p.q_des_log, joint_names=p.joint_names)
             #joint velocities with limits
-            plt.figure()
-            plt.subplot(2, 1, 1)
-            plt.plot(p.time_log, p.qd_log[0,:], "-b",  linewidth=3)
-            plt.plot(p.time_log, p.qd_des_log[0, :], "-r",  linewidth=4)
-            plt.plot(p.time_log, constants.MAXSPEED_RADS_PULLEY*np.ones((len(p.time_log))), "-k",  linewidth=4)
-            plt.plot(p.time_log, -constants.MAXSPEED_RADS_PULLEY*np.ones((len(p.time_log))), "-k",  linewidth=4)
-            plt.ylabel("WHEEL_L")
-            plt.grid(True)
-            plt.subplot(2, 1, 2)
-            plt.plot(p.time_log, p.qd_log[1, :], "-b",  linewidth=3)
-            plt.plot(p.time_log, p.qd_des_log[1, :], "-r",  linewidth=4)                
-            plt.plot(p.time_log, constants.MAXSPEED_RADS_PULLEY*np.ones((len(p.time_log))), "-k",  linewidth=4)
-            plt.plot(p.time_log, -constants.MAXSPEED_RADS_PULLEY*np.ones((len(p.time_log))), "-k",  linewidth=4)
-            plt.ylabel("WHEEL_R")
-            plt.grid(True)
+            fig, axs = plt.subplots(3, 1, sharex=True, figsize=(10, 8))  # Create all 3 subplots at once
 
+            axs[0].plot(p.time_log, p.qd_log[0, :], "-b", linewidth=3)
+            axs[0].plot(p.time_log, p.qd_des_log[0, :], "-r", linewidth=4)
+            axs[0].plot(p.time_log, constants.MAXSPEED_RADS_PULLEY * np.ones(len(p.time_log)), "-k", linewidth=4)
+            axs[0].plot(p.time_log, -constants.MAXSPEED_RADS_PULLEY * np.ones(len(p.time_log)), "-k", linewidth=4)
+            axs[0].set_ylabel("WHEEL_L")
+            axs[0].grid(True)
+
+            axs[1].plot(p.time_log, p.qd_log[1, :], "-b", linewidth=3)
+            axs[1].plot(p.time_log, p.qd_des_log[1, :], "-r", linewidth=4)
+            axs[1].plot(p.time_log, constants.MAXSPEED_RADS_PULLEY * np.ones(len(p.time_log)), "-k", linewidth=4)
+            axs[1].plot(p.time_log, -constants.MAXSPEED_RADS_PULLEY * np.ones(len(p.time_log)), "-k", linewidth=4)
+            axs[1].set_ylabel("WHEEL_R")
+            axs[1].grid(True)
+
+            axs[2].plot(p.time_log, p.alpha_control_log, "-r", linewidth=4)
+            axs[2].set_ylabel("alpha")
+            axs[2].grid(True)
+
+            plt.xlabel("Time [s]")
+            plt.tight_layout()
+            plt.show()
 
 
             #states plot
-            if self.SIMULATOR == 'biral3d': #not the roll and pitch are not meaningful because we are not tracking the yaw of the terrain so they are assosiated to a different yaw
+            if self.SIMULATOR == 'distributed3d': #not the roll and pitch are not meaningful because we are not tracking the yaw of the terrain so they are assosiated to a different yaw
                 plotFrame('position', time_log=p.time_log, des_Pose_log=p.basePoseW_des_log, Pose_log=p.basePoseW_log, title='states', frame='W')
             else:
                 plotFrameLinear(name='position',time_log=p.time_log,des_Pose_log = p.des_state_log, Pose_log=p.state_log, custom_labels=(["X","Y","THETA"]))
@@ -624,7 +655,7 @@ class GenericSimulator(BaseController):
         # v = np.clip(v, -constants.MAX_LINEAR_VELOCITY, constants.MAX_LINEAR_VELOCITY)
         # o = np.clip(o, -constants.MAX_ANGULAR_VELOCITY, constants.MAX_ANGULAR_VELOCITY)
         #no longer needed
-        # if self.SIMULATOR=='biral3d':
+        # if self.SIMULATOR=='distributed3d':
         #     self.w_R_b = self.math_utils.eul2Rot(self.euler)
         #     self.hf_R_b = self.math_utils.eul2Rot(np.array([self.euler[0],self.euler[1], 0.]))
         #     # project v_des which is in Horizontal frame onto hf_x_b
@@ -655,7 +686,7 @@ class GenericSimulator(BaseController):
         # OPEN LOOP wl , wr (from -IDENT_MAX_WHEEL_SPEED to IDENT_MAX_WHEEL_SPEED)
         ####################################
 
-        if self.SIMULATOR=='biral3d':
+        if self.SIMULATOR=='distributed3d':
             number_of_samples = int(np.floor(10./conf.robot_params[p.robot_name]['dt']))
             wheel_l_vec = np.linspace(wheel_l, wheel_l, 3*number_of_samples)
             wheel_r_vec = np.linspace(0, self.IDENT_MAX_WHEEL_SPEED, number_of_samples)  # it if passes from 0 for some reason there is a non linear
@@ -663,12 +694,12 @@ class GenericSimulator(BaseController):
         else:
             wheel_l_vec = []
             wheel_r_vec = []
-            change_interval = 3.
+            change_interval = 2.
             if wheel_l <= 0.: #this is to make such that the ID starts always with no rotational speed
-                wheel_r = np.linspace(-self.IDENT_MAX_WHEEL_SPEED, self.IDENT_MAX_WHEEL_SPEED, 24) #it if passes from 0 for some reason there is a non linear
+                wheel_r = np.linspace(-self.IDENT_MAX_WHEEL_SPEED, self.IDENT_MAX_WHEEL_SPEED, 32) #it if passes from 0 for some reason there is a non linear
                     #behaviour in the long slippage
             else:
-                wheel_r =np.linspace(self.IDENT_MAX_WHEEL_SPEED, -self.IDENT_MAX_WHEEL_SPEED, 24)
+                wheel_r =np.linspace(self.IDENT_MAX_WHEEL_SPEED, -self.IDENT_MAX_WHEEL_SPEED, 32)
             time = 0
             i = 0
             while True:
@@ -714,7 +745,7 @@ class GenericSimulator(BaseController):
         wheel_L = qd[0]
         wheel_R = qd[1]
 
-        if self.SIMULATOR=='biral3d':
+        if self.SIMULATOR=='distributed3d':
             # project twist from wf to bf
             w_R_b = self.math_utils.eul2Rot(self.u.angPart(self.basePoseW))
             b_lin_vel = w_R_b.T.dot(self.u.linPart(W_baseTwist))
@@ -853,17 +884,21 @@ class GenericSimulator(BaseController):
 
         return qd_comp, beta_l, beta_r
 
-    def computeLongSlipCompensationNN(self,  qd_des, constants):
+    def computeLongSlipCompensationMachineLearning(self,  qd_des, constants):
         # compute track velocity from encoder
         v_enc_l = constants.SPROCKET_RADIUS * qd_des[0]
         v_enc_r = constants.SPROCKET_RADIUS * qd_des[1]
-        # predict the betas from NN
-        if len(self.model_beta_l.feature_names_)>2:
-            beta_l = self.model_beta_l.predict(np.array([qd_des[0], qd_des[1], self.basePoseW[3], self.basePoseW[4], self.basePoseW[5]]))
-            beta_r = self.model_beta_r.predict(np.array([qd_des[0], qd_des[1], self.basePoseW[3], self.basePoseW[4], self.basePoseW[5]]))
-        else:
-            beta_l = self.model_beta_l.predict(qd_des)
-            beta_r = self.model_beta_r.predict(qd_des)
+        if  self.SLIPPAGE_INFERENCE_TYPE == 'decision_trees':
+            # predict the betas from NN
+            if len(self.model_beta_l.feature_names_)>2:
+                beta_l = self.model_beta_l.predict(np.array([qd_des[0], qd_des[1], self.basePoseW[3], self.basePoseW[4], self.basePoseW[5]]))
+                beta_r = self.model_beta_r.predict(np.array([qd_des[0], qd_des[1], self.basePoseW[3], self.basePoseW[4], self.basePoseW[5]]))
+            else:
+                beta_l = self.model_beta_l.predict(qd_des)
+                beta_r = self.model_beta_r.predict(qd_des)
+        elif self.SLIPPAGE_INFERENCE_TYPE == 'interpolator':
+            beta_l = (self.model_beta_l([qd_des])).squeeze()
+            beta_r = (self.model_beta_r([qd_des])).squeeze()
         #matlab
         # beta_l = self.eng.feval(self.model_beta_l['predictFcn'], qd_des)
         # beta_r = self.eng.feval(self.model_beta_r['predictFcn'], qd_des)
@@ -877,6 +912,12 @@ class GenericSimulator(BaseController):
         return qd_comp, beta_l, beta_r
     
     def send_des_jstate(self, q_des, qd_des, tau_ffwd):
+
+        self.checkLoopFrequency()
+
+        # Publish clock to have ros.Time.now sync with self.time
+        self.clock_pub.publish(Clock(clock=ros.Time.from_sec(self.time)))
+
         # No need to change the convention because in the HW interface we use our conventtion (see ros_impedance_contoller_xx.yaml)
         msg = JointState()
         msg.name = self.joint_names
@@ -887,14 +928,18 @@ class GenericSimulator(BaseController):
         if np.mod(self.pub_counter, self.decimate_publish) == 0:
             self.pub_des_jstate.publish(msg) #publish in /commands
 
+        # I comment because it slows loop down TODO
+        if np.mod(self.pub_counter, self.decimate_publish) == 0:
+            self.joint_pub.publish(msg)  # this publishes in tractor/joint_state q = q_des, it is just for rviz to see the joints of the wheels moving
+
         #trigger simulators
-        if self.SIMULATOR == 'biral' or self.SIMULATOR == 'biral3d': #TODO implement torque control
+        if self.SIMULATOR == 'distributed2d' or self.SIMULATOR == 'distributed3d': #TODO implement torque control
             if self.ControlType != 'OPEN_LOOP' and self.LONG_SLIP_COMPENSATION  != 'NONE':
                 if np.any(qd_des > np.array([constants.MAXSPEED_RADS_PULLEY, constants.MAXSPEED_RADS_PULLEY])) or np.any(qd_des < -np.array([constants.MAXSPEED_RADS_PULLEY, constants.MAXSPEED_RADS_PULLEY])):
                     print(colored("wheel speed beyond limits, NN might do wrong predictions", "red"))
 
 
-            if self.SIMULATOR=='biral3d':
+            if self.SIMULATOR=='distributed3d':
                 if self.TERRAIN:
                     pg, terrain_roll, terrain_pitch, terrain_yaw = self.terrainManager.project_on_mesh(point=self.basePoseW[:2], direction=np.array([0., 0., 1.]))
                     pose_des, terrain_roll_des, terrain_pitch_des, terrain_yaw_des = self.terrainManager.project_on_mesh(point=np.array([self.des_x, self.des_y]), direction=np.array([0., 0., 1.]))
@@ -940,14 +985,13 @@ class GenericSimulator(BaseController):
 
             self.q = q_des.copy()
             self.qd = qd_des.copy()
-            if np.mod(self.pub_counter, self.decimate_publish) == 0:
-                self.joint_pub.publish(msg)  # this publishes q = q_des, it is just for rviz
 
-            if self.NAVIGATION!='none' and self.SIMULATOR!='gazebo': #for biral models set the lidar position in gazebo consistent with the robot motion
+
+            if self.NAVIGATION!='none' and self.SIMULATOR!='gazebo': #for distributed models set the lidar position in gazebo consistent with the robot motion
                 self.setModelState('lidar', self.u.linPart(self.basePoseW), self.quaternion)
 
         if self.TERRAIN: #this is published to show mesh in rviz
-            if self.IDENT_TYPE=='WHEELS' and self.SIMULATOR=='biral3d':
+            if self.IDENT_TYPE=='WHEELS' and self.SIMULATOR=='distributed3d':
                 self.ros_pub.add_plane(pos=np.array([0,0,-0.]), orient=np.array([0., self.RAMP_INCLINATION, 0]), color="white", alpha=0.5)
             else:
                 self.ros_pub.add_mesh("tractor_description", "/meshes/terrain.stl", position=np.array([0., 0., 0.0]), color="red", alpha=1.0)
@@ -1023,14 +1067,16 @@ class GenericSimulator(BaseController):
 def talker(p):
     p.start()
     p.startSimulator()
+
     if p.ControlType == "OPEN_LOOP" and p.IDENT_TYPE == 'WHEELS':
-        wheel_l = np.linspace(-p.IDENT_MAX_WHEEL_SPEED, p.IDENT_MAX_WHEEL_SPEED, 24)
+        wheel_l = np.linspace(-p.IDENT_MAX_WHEEL_SPEED, p.IDENT_MAX_WHEEL_SPEED, 32)
         ramps = np.linspace(0.0, -0.3, 5) #I use negative ramp inclination otherwise the terrain consistent startyaw is PI and not 0
-        if p.SIMULATOR == 'biral3d':
+        if p.SIMULATOR == 'distributed3d':
             # p.IDENT_WHEEL_L =  3
             # p.RAMP_INCLINATION = 0.2
             # main_loop(p)
-            for inclination in range(len(ramps)):
+            #range(3,5)
+            for inclination in range(3,5):
                 p.RAMP_INCLINATION = ramps[inclination]
                 print(colored(f"Ident with inclination {p.RAMP_INCLINATION}", "red"))
                 for speed in range(len(wheel_l)):
@@ -1067,6 +1113,7 @@ def talker(p):
 
 def main_loop(p):
     p.loadModelAndPublishers()
+    p.u.putIntoGlobalParamServer("use_sim_time", True)
     p.robot.na = 2 #initialize properly vars for only 2 actuators (other 2 are caster wheels)
     p.initVars()
     p.q_old = np.zeros(2)
@@ -1103,9 +1150,12 @@ def main_loop(p):
             wheel_l_ol, wheel_r_ol  = p.generateWheelTraj(p.IDENT_WHEEL_L)
             v_ol, omega_ol = p.mapFromWheels(wheel_l_ol, wheel_r_ol)
             traj_length = len(wheel_l_ol)
-
+            # check the buffer size is big enough
+            if  traj_length>conf.robot_params[p.robot_name]['buffer_size']:
+                print(colored("Buffer size is not big enough for the ID!"))
+                sys.exit()
         if p.PLANNING == 'none':
-            if p.SIMULATOR == 'biral3d':
+            if p.SIMULATOR == 'distributed3d':
                 p.des_x = p.terrain_consistent_pose_init[0]  # +0.1
                 p.des_y = p.terrain_consistent_pose_init[1]  # +0.1
                 p.des_theta = p.terrain_consistent_pose_init[5]  # +0.1
@@ -1171,20 +1221,19 @@ def main_loop(p):
         # CLOSE loop control
         # generate reference trajectory
         vel_gen = VelocityGenerator(simulation_time=20.,    DT=conf.robot_params[p.robot_name]['dt'])
-
         if p.PLANNING == 'none':
-            if p.SIMULATOR=='biral3d':
+            if p.SIMULATOR=='distributed3d':
                 p.des_x = p.terrain_consistent_pose_init[0]  # +0.1
                 p.des_y = p.terrain_consistent_pose_init[1]  # +0.1
                 p.des_theta = p.terrain_consistent_pose_init[5]  # +0.1
             else:
+                p.des_x = p.p0[0]
+                p.des_y = p.p0[1]
+                p.des_theta = p.p0[2]
                 # for PAPER user_defined_reference
                 # p.des_x = 0
                 # p.des_y = 0
                 # p.des_theta = 0
-                p.des_x = p.p0[0]
-                p.des_y = p.p0[1]
-                p.des_theta = p.p0[2]
             if p.friction_coefficient == 0.1:
                 v_ol, omega_ol, v_dot_ol, omega_dot_ol, _ = vel_gen.velocity_mir_smooth(v_max_=0.2, omega_max_=0.3)
             if p.friction_coefficient == 0.4:
@@ -1207,10 +1256,11 @@ def main_loop(p):
         params = LyapunovParams(K_P=10., K_THETA=1., DT=conf.robot_params[p.robot_name]['dt'], ESTIMATE_ALPHA_WITH_ACTUAL_VALUES=p.ESTIMATE_ALPHA_WITH_ACTUAL_VALUES) #high gains 15 5 / low gains 10 1 (default)
         p.controller = LyapunovController(params=params)#, matlab_engine = p.eng)
         p.controller.setSideSlipCompensationType(p.SIDE_SLIP_COMPENSATION)
+        p.controller.setSlippageInferenceType(p.SLIPPAGE_INFERENCE_TYPE)
         p.traj.set_initial_time(start_time=p.time)
         while not ros.is_shutdown():
             # update kinematics
-            if p.SIMULATOR == 'biral3d':
+            if p.SIMULATOR == 'distributed3d':
                 robot_state.x = p.basePoseW[p.u.sp_crd["LX"]]
                 robot_state.y = p.basePoseW[p.u.sp_crd["LY"]]
                 robot_state.z = p.basePoseW[p.u.sp_crd["LY"]]
@@ -1241,14 +1291,16 @@ def main_loop(p):
                 p.ctrl_v, p.ctrl_omega, p.V, p.V_dot, p.alpha_control = p.controller.control_alpha(robot_state, p.time, p.des_x, p.des_y, p.des_theta, p.v_d, p.omega_d,  p.v_dot_d, p.omega_dot_d, traj_finished,p.model_alpha, approx=False)
                 #p.des_theta -= p.controller.alpha_exp(p.v_d, p.omega_d, p.model_alpha)  # we track theta_d -alpha_d
 
+
+
             if p.ControlType=='CLOSED_LOOP_UNICYCLE':
                 p.ctrl_v, p.ctrl_omega, p.V, p.V_dot = p.controller.control_unicycle(robot_state, p.time, p.des_x, p.des_y, p.des_theta, p.v_d, p.omega_d, traj_finished)
 
             p.qd_des = p.mapToWheels(p.ctrl_v, p.ctrl_omega)
 
             if not p.ControlType=='CLOSED_LOOP_UNICYCLE'  and not traj_finished:
-                if p.LONG_SLIP_COMPENSATION=='NN':
-                    p.qd_des, p.beta_l_control, p.beta_r_control = p.computeLongSlipCompensationNN(p.qd_des, constants)
+                if p.LONG_SLIP_COMPENSATION=='MACHINE_LEARNING':
+                    p.qd_des, p.beta_l_control, p.beta_r_control = p.computeLongSlipCompensationMachineLearning(p.qd_des, constants)
                 if p.LONG_SLIP_COMPENSATION == 'EXP':
                     p.qd_des, p.beta_l_control, p.beta_r_control = p.computeLongSlipCompensationExp(p.ctrl_v, p.ctrl_omega, p.qd_des, constants)
 
@@ -1278,27 +1330,31 @@ def main_loop(p):
             p.rate.sleep()
             p.time = np.round(p.time + np.array([conf.robot_params[p.robot_name]['dt']]), 4) # to avoid issues of dt 0.0009999
 
-    if p.SAVE_BAGS:
-        p.recorder.stop_recording_srv()
-        #this is for ident with biral3d
-        if p.SIMULATOR=='biral3d' and p.IDENT_TYPE=='WHEELS':
-            not_nans=~np.isnan(p.time_log)
-            data = pd.DataFrame({
-                "time": p.time_log[not_nans],
-                "wheel_l": p.qd_des_log[0, not_nans],
-                "wheel_r": p.qd_des_log[1, not_nans],
-                "roll": p.basePoseW_log[3, not_nans],
-                "pitch": p.basePoseW_log[4, not_nans],
-                "yaw": p.basePoseW_log[5, not_nans],
-                "beta_l": p.beta_l_log[not_nans],
-                "beta_r": p.beta_r_log[not_nans],
-                "alpha": p.alpha_log[not_nans]})
+    # always save csv when you do ident
+    if p.IDENT_TYPE == 'WHEELS':
+        not_nans = ~np.isnan(p.time_log)
+        data = pd.DataFrame({
+            "time": p.time_log[not_nans],
+            "wheel_l": p.qd_des_log[0, not_nans],
+            "wheel_r": p.qd_des_log[1, not_nans],
+            "roll": p.basePoseW_log[3, not_nans],
+            "pitch": p.basePoseW_log[4, not_nans],
+            "yaw": p.basePoseW_log[5, not_nans],
+            "beta_l": p.beta_l_log[not_nans],
+            "beta_r": p.beta_r_log[not_nans],
+            "alpha": p.alpha_log[not_nans]})
+        if p.SIMULATOR == 'distributed3d':
             # Save to CSV
             output_file = os.environ['LOCOSIM_DIR'] + '/robot_control/base_controllers/tracked_robot/regressor/data3d/' + \
-                                   f"ident_wheels_fr_{p.friction_coefficient}_ramp_{p.RAMP_INCLINATION}_wheelL_{p.IDENT_WHEEL_L}.csv"
-            data.to_csv(output_file, index=False)
-            print(colored(f"Data saved to {output_file}","red"))
+                          f"ident_wheels_fr_{p.friction_coefficient}_ramp_{p.RAMP_INCLINATION}_wheelL_{p.IDENT_WHEEL_L}.csv"
+        else:
+            output_file = os.environ['LOCOSIM_DIR'] + '/robot_control/base_controllers/tracked_robot/regressor/data2d/' + \
+                          f"ident_wheels_fr_{p.friction_coefficient}_wheelL_{p.IDENT_WHEEL_L}.csv"
+        data.to_csv(output_file, index=False)
+        print(colored(f"Data saved to {output_file}", "red"))
 
+    if p.SAVE_BAGS:
+        p.recorder.stop_recording_srv()
         if p.ControlType !='OPEN_LOOP':
             filename = f'{p.ControlType}_Long_{p.LONG_SLIP_COMPENSATION}_Side_{p.SIDE_SLIP_COMPENSATION}.mat'
             p.log_e_x, p.log_e_y, p.log_e_theta = p.controller.getErrors()
