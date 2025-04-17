@@ -83,59 +83,25 @@ sudo apt install ros-ROS_VERSION-joint-trajectory-controller
 
 #### Pinocchio stuff
 
-**Add robotpkg as source repository to apt:**
-
 ```
-sudo sh -c "echo 'deb [arch=amd64] http://robotpkg.openrobots.org/packages/debian/pub $(lsb_release -sc) robotpkg' >> /etc/apt/sources.list.d/robotpkg.list"
+sudo apt install ros-ROS_VERSION-crocoddyl
 ```
 
 ```
-sudo sh -c "echo 'deb [arch=amd64] http://robotpkg.openrobots.org/wip/packages/debian/pub $(lsb_release -sc) robotpkg' >> /etc/apt/sources.list.d/robotpkg.list"
-```
-
-**Register the authentication certificate of robotpkg:**
-
-```
-sudo apt install -qqy lsb-release gnupg2 curl
+sudo apt install ros-ROS_VERSION-eigenpy	
 ```
 
 ```
-curl http://robotpkg.openrobots.org/packages/debian/robotpkg.key | sudo apt-key add -
-```
-
-You need to run at least once apt update to fetch the package descriptions:
-
-```
-sudo apt-get update
-```
-
-Now you can install Pinocchio and the other dependencies:
-
-```
-sudo apt install robotpkg-PINOCCHIO_PYTHON_VERSION-crocoddyl
+sudo apt install ros-ROS_VERSION-pinocchio
 ```
 
 ```
-sudo apt install robotpkg-PINOCCHIO_PYTHON_VERSION-eigenpy	
-```
-
-```
-sudo apt install robotpkg-PINOCCHIO_PYTHON_VERSION-pinocchio
-```
-
-```
-sudo apt-get install robotpkg-PINOCCHIO_PYTHON_VERSION-quadprog  
-```
-
-**NOTE:** If you have issues in installing robotpkg libraries you can try to install them through ROS as:
-
-```
-sudo apt-get install ros-ROS_VERSION-LIBNAME
+sudo apt-get install ros-ROS_VERSION-quadprog  
 ```
 
 
 
-###  Python
+####  Python stuff
 
 ```
 sudo apt-get install python3-scipy

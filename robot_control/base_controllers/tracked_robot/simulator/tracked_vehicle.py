@@ -8,9 +8,12 @@ class VehicleParam:
         self.mass = constants.mass #[kg] vehicle mass
         self.Izz = constants.inertia_moment #[kg m^2] vehicle inertia
         self.width = constants.TRACK_WIDTH #[m]
+        self.length = constants.TRACK_LENGTH
         self.height = 0.25 #[m] com height wrt ground
         self.weight  = self.mass * 9.81
-        self.bI = np.eye(3)*constants.inertia_moment #assuming homogeneous density TODO change
+        self.bI = np.array([1/12 * self.mass*(self.height*self.height + self.width * self.width),
+                           1/12*self.mass*(self.height*self.height + self.length * self.length),
+                           constants.inertia_moment])
 
 class TrackedVehicle:
     def __init__(self, vehicle_param, track_param, ground_param):

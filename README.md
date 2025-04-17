@@ -28,52 +28,168 @@ https://download.jetbrains.com/Python/pycharm-community-2021.1.1.tar.gz
 
 To be able to keep the plots **alive** at the end of the program and to have access to variables,  you need to "Edit Configurations..." and tick "Run with Python Console". Otherwise the plot will immediately close. 
 
-### Terminal
+# Closed loop simulation
 
 To run from a terminal we  use the interactive option that allows  when you close the program have access to variables:
 
 ```
-$ python3 -i $LOCOSIM_DIR/robot_control/base_controllers/tractor_simulator.py
+$ python3 -i $LOCOSIM_DIR/robot_control/base_controllers/closed_loop_simulation.py
 ```
 
 to exit from Python3 console type CTRL+Z
 
+The file **closed_loop_simulation.py** has certain option flags that are summarized in the following table:
+
+| Flag                   | Value                                                    | Meaning                                                      |
+| ---------------------- | -------------------------------------------------------- | ------------------------------------------------------------ |
+| SIMULATOR              | 'distributed2d','distributed3d'                          | set to flat_terran/sloped terrain                            |
+| ControlType            | 'OPEN_LOOP','CLOSED_LOOP_UNICYCLE', 'CLOSED_LOOP_SLIP_0' | set to CLOSED_LOOP_UNICYCLE for UC controller, and to CLOSED_LOOP_SLIP_0 for SLC controller |
+| SIDE_SLIP_COMPENSATION | 'NONE','MACHINE_LEARNING'                                |                                                              |
+| LONG_SLIP_COMPENSATION | 'NONE','NN'                                              |                                                              |
+| IDENT_TYPE             | 'NONE','WHEELS'                                          | set to WHEELS to perform the open-loop tests for regressor identification |
+| STATISTICAL_ANALYSIS   | False, True                                              | set to WHEELS to perform the statistical analisys            |
+| friction_coefficient   | 0,1, 0.4, 0.6                                            |                                                              |
+| PLANNING               | 'none', dubins' , 'clothoids', 'optim'                   |                                                              |
+| SAVE_BAGS              | False, True                                              |                                                              |
+| ADD_NOISE              | False, True                                              |                                                              |
+
+### Regressor Identification on flat terrain
+
+The slippage regressor will be used if ControlType=CLOSED_LOOP_SLIP_0  with  SIDE_SLIP_COMPENSATION=MACHINE_LEARNING and LONG_SLIP_COMPENSATION=MACHINE_LEARNING. To run the identification tests on flat terrain:
+
+1) set in the file **closed_loop_simulation.py** 
+
+   ```
+   IDENT_TYPE='WHEELS', 
+   SIMULATOR='distributed2d'
+   IDENT_TYPE='WHEELS'
+   ControlType='OPEN_LOOP'
+   friction_coefficient = 0.1/0.4
+   ```
+
+
+2. run the simulation, many .csv files will be generated  in the folder **robot_control/tracked_robot/regressor/data2d**
+3. run **generate_slippage_regressor2d.py**, set the friction coefficient to either 0.1 and 0.4. This command will generate the catboost model files **model_alpha0.1.cb, model_beta_l0.1.cb, ** **model_beta_r0.1.cb** and **model_alpha0.4.cb, model_beta_l0.4.cb, ** **model_beta_r0.4.cb**
 
 
 
+### Regressor Identification on sloped terrain
+
+The slippage regressor will be used if ControlType=CLOSED_LOOP_SLIP_0  with  SIDE_SLIP_COMPENSATION=MACHINE_LEARNING and LONG_SLIP_COMPENSATION=MACHINE_LEARNING. To run the identification tests on flat terrain:
+
+1) set in the file **closed_loop_simulation.py** 
+
+   ```
+   SIMULATOR='distributed3d'
+   IDENT_TYPE='WHEELS'
+   ControlType='OPEN_LOOP'
+   friction_coefficient = 0.4/0.6
+   ```
+
+2. run the simulation, many .csv files will be generated  in the folder **robot_control/tracked_robot/regressor/data2d**
+3. run **generate_slippage_regressor3d.py**, set the friction coefficient to either 0.4 and 0.6. This command will generate the catboost model files **model_alpha_3d_0.4.cb, model_beta_l_3d_0.4.cb, ** **model_beta_r_3d_0.4.cb** and **model_alpha_3d_0.6.cb, model_beta_l_3d_0.6.cb, ** **model_beta_r_3d_0.6.cb**
 
 
 
-### Open loop Simulation
+## **Experiments on Flat terrain **
 
-Run file **tracked_robot/tracked_robot_simulation3d.py**
+### **User defined reference**
+
+To generate Figure 11,12, 13 
+
+1. set in the file **closed_loop_simulation.py** 
+
+```
+IDENT_TYPE='NONE', 
+SIMULATOR='distributed2d'
+ControlType='CLOSED_LOOP_SLIP_0' / 'CLOSED_LOOP_UNICYCLE'
+friction_coefficient = 0.1
+ADD_NOISE=True
+p0 = np.array([0.05, 0.03, 0.01])
+des_x = 0
+des_y = 0
+des_theta = 0
+```
+
+2. run **closed_loop_simulation.py**
+
+### **Planning strategies evaluation**
+
+To generate Figure 15, 16
+
+1. set in the file  **closed_loop_simulation.py** 
+
+```
+IDENT_TYPE='NONE', 
+SIMULATOR='distributed2d'
+ControlType='CLOSED_LOOP_SLIP_0' / 'CLOSED_LOOP_UNICYCLE'
+friction_coefficient = 0.4
+self.PLANNING =  'dubins' /'optim'/ 'clothoids'
+ADD_NOISE=False
+```
+
+2. run matlab__optimization/ros/ros_node.m
+3. run closed_loop_simulation.py
+
+### **Statistical analisys**
+
+To generate Table 4:
+
+1. set in the file  **closed_loop_simulation.py** 
+
+```
+IDENT_TYPE='NONE', 
+SIMULATOR='distributed2d'
+ControlType='CLOSED_LOOP_SLIP_0' / 'CLOSED_LOOP_UNICYCLE'
+friction_coefficient = 0.4
+self.PLANNING =  'dubins' /'optim'/ 'clothoids'
+ADD_NOISE=False
+STATISTICAL_ANALYSIS = True
+```
+
+2. run **matlab_optimization/ros/ros_node.m**
+
+3. run **closed_loop_simulation.py**, the data will be stored in **statistics.csv**
 
 
 
-### Training regressors
+## **Experiments on slopes**
 
+### Open loop Simulation 
 
+To generate Figure 20 (left):
 
-### Closed loop Simulation
+1. in **open_loop_simulation3d.py** uncomment what is related to "PAPER: sloped test: distributed/non distributed"
 
+2. set contact_distribution=True/False
+3. run **open_loop_simulation3d.py**
 
+4.  a ****openLoop3DModel_sloped_test_chicane_Distr_{True/False}.mat**** file is saved with the log of the  pose variable inside the robot_control/base_controller/tracked_robot/simulator folder
 
-The file **tractor_simulator.py** has certain option flags that are summarized in the following table:
+To generate Figure 20 (right)
 
-| Flag | Value |
-| ---- | ----- |
-|      |       |
-|      |       |
-|      |       |
-|      |       |
-|      |       |
-|      |       |
+1. in **open_loop_simulation3d.py** uncomment what is related to "PAPER: Stiffness variation"
 
+2. set contact_distribution=True/False
+3. run **open_loop_simulation3d.py**
+4. a **openLoop3DModel_stiff_var_test_chicane_Distr_{True/False}.mat** file is saved with the log of the  pose variable inside the robot_control/base_controller/tracked_robot/simulator folder
 
+### **Closed loop simulation**
 
-### Matlab Planning
+1. In the file **closed_loop_simulation.py** set:
 
-In the case of Planning flag TODO
+```
+SIMULATOR='distributed3d'
+TERRAIN = True
+ControlType='CLOSED_LOOP_SLIP_0' / 'CLOSED_LOOP_UNICYCLE'
+friction_coefficient = 0.6
+IDENT_TYPE='NONE'
+PLANNING =  'none'
+ADD_NOISE=False
+STATISTICAL_ANALYSIS = False
+```
+
+2. run **closed_loop_simulation.py** 
 
 
 

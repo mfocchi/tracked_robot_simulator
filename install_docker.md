@@ -74,7 +74,7 @@ $ ./install_docker.sh
   $ source /opt/ros/noetic/setup.bash
   $ mkdir -p ~/ros_ws/src
   $ cd ~/ros_ws/src
-  $ git clone https://github.com/mfocchi/tracked_robot_simulator.git -b develop --recursive
+  $ git clone https://github.com/mfocchi/tracked_robot_simulator.git 
   $ cd  ~/ros_ws/
   $ catkin_make install
   $ source .bashrc
