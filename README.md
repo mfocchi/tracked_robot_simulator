@@ -104,6 +104,8 @@ IDENT_TYPE='NONE',
 SIMULATOR='distributed2d'
 ControlType='CLOSED_LOOP_SLIP_0' / 'CLOSED_LOOP_UNICYCLE'
 friction_coefficient = 0.1
+PLANNING =  'none'
+NAVIGATION =  'none'
 ADD_NOISE=True
 p0 = np.array([0.05, 0.03, 0.01])
 des_x = 0
@@ -125,6 +127,7 @@ SIMULATOR='distributed2d'
 ControlType='CLOSED_LOOP_SLIP_0' / 'CLOSED_LOOP_UNICYCLE'
 friction_coefficient = 0.4
 self.PLANNING =  'dubins' /'optim'/ 'clothoids'
+NAVIGATION =  'none'
 ADD_NOISE=False
 ```
 
@@ -143,6 +146,7 @@ SIMULATOR='distributed2d'
 ControlType='CLOSED_LOOP_SLIP_0' / 'CLOSED_LOOP_UNICYCLE'
 friction_coefficient = 0.4
 self.PLANNING =  'dubins' /'optim'/ 'clothoids'
+NAVIGATION =  'none'
 ADD_NOISE=False
 STATISTICAL_ANALYSIS = True
 ```
@@ -185,6 +189,7 @@ ControlType='CLOSED_LOOP_SLIP_0' / 'CLOSED_LOOP_UNICYCLE'
 friction_coefficient = 0.6
 IDENT_TYPE='NONE'
 PLANNING =  'none'
+NAVIGATION =  'none'
 ADD_NOISE=False
 STATISTICAL_ANALYSIS = False
 p0 = np.array([15., 2., 0.])
@@ -193,6 +198,24 @@ p0 = np.array([15., 2., 0.])
 2. run **closed_loop_simulation.py** 
 
 
+
+### **Navigation**
+
+1. In the file **closed_loop_simulation.py** set:
+
+```
+SIMULATOR='distributed3d'
+TERRAIN = True
+ControlType='CLOSED_LOOP_SLIP_0' / 'CLOSED_LOOP_UNICYCLE'
+friction_coefficient = 0.6
+IDENT_TYPE='NONE'
+PLANNING =  'none'
+NAVIGATION =  '3d'
+ADD_NOISE=False
+STATISTICAL_ANALYSIS = False
+```
+
+2. run **closed_loop_simulation.py** 
 
 # Tips and Tricks 
 
