@@ -40,7 +40,6 @@ from base_controllers.tracked_robot.simulator.tracked_vehicle_simulator3d import
 from base_controllers.utils.common_functions import getRobotModelFloating
 from base_controllers.utils.common_functions import checkRosMaster
 from base_controllers.utils.common_functions import spawnModel, launchFileNode
-from base_controllers.tracked_robot.regressor.NN.inference_nn import SlipNN
 import pandas as pd
 from gazebo_msgs.msg import ModelState
 from gazebo_msgs.srv import SetModelState
@@ -63,7 +62,7 @@ class GenericSimulator(BaseController):
         self.ControlType = 'CLOSED_LOOP_SLIP_0' #'OPEN_LOOP' 'CLOSED_LOOP_UNICYCLE' 'CLOSED_LOOP_SLIP_0' 'CLOSED_LOOP_SLIP'
         self.SIDE_SLIP_COMPENSATION = 'MACHINE_LEARNING' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
         self.LONG_SLIP_COMPENSATION = 'MACHINE_LEARNING' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
-        self.SLIPPAGE_INFERENCE_TYPE = 'decision_trees'  # 'decision_trees','interpolator' , 'NN'
+        self.SLIPPAGE_INFERENCE_TYPE = 'decision_trees'  # 'decision_trees','interpolator'
         self.ESTIMATE_ALPHA_WITH_ACTUAL_VALUES = True # makes difference for v >= 0.4
 
         # Parameters for open loop identification
@@ -117,10 +116,6 @@ class GenericSimulator(BaseController):
                 # self.model_alpha = self.eng.load(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/training.mat')['alpha_model_18']
                 # self.model_beta_l = self.eng.load(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/training.mat')['beta_l_model_18']
                 # self.model_beta_r = self.eng.load(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/training.mat')['beta_r_model_18']
-            elif  self.SLIPPAGE_INFERENCE_TYPE=='NN':
-                self.model_beta_l = SlipNN(output='beta_l')
-                self.model_beta_r = SlipNN(output='beta_r')
-                self.model_alpha = SlipNN(output='alpha')
             elif self.SLIPPAGE_INFERENCE_TYPE=='interpolator':
                 from scipy.interpolate import RBFInterpolator
                 data = os.environ['LOCOSIM_DIR']+f'/robot_control/base_controllers/tracked_robot/regressor/ident_wheels_sim_2d_'+str(self.friction_coefficient)+'.csv'
