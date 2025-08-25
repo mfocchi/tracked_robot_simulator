@@ -55,15 +55,15 @@ class GenericSimulator(BaseController):
         super().__init__(robot_name=robot_name, external_conf = conf)
         self.torque_control = False
         print("Initialized tractor controller---------------------------------------------------------------")
-        self.SIMULATOR = 'distributed2d'#, 'gazebo(unicycle)', 'coppelia'(deprecated), 'distributed2d'(2d) 'distributed3d'
+        self.SIMULATOR = 'gazebo'#, 'gazebo(unicycle)', 'coppelia'(deprecated), 'distributed2d'(2d) 'distributed3d'
         self.NAVIGATION = 'none'  # 'none', '2d' , '3d'
-        self.TERRAIN = False #True: Slopes False: Flat terrain
+        self.TERRAIN = True #True: Slopes False: Flat terrain
 
         self.STATISTICAL_ANALYSIS = False #samples targets and orientations in a given space around the robot and compute average tracking error
-        self.ControlType = 'CLOSED_LOOP_SLIP_0' #'OPEN_LOOP' 'CLOSED_LOOP_UNICYCLE' 'CLOSED_LOOP_SLIP_0' 'CLOSED_LOOP_SLIP'
-        self.SIDE_SLIP_COMPENSATION = 'MACHINE_LEARNING' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
-        self.LONG_SLIP_COMPENSATION = 'MACHINE_LEARNING' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
-        self.SLIPPAGE_INFERENCE_TYPE = 'decision_trees'  # 'decision_trees','interpolator'
+        self.ControlType = 'CLOSED_LOOP_UNICYCLE' #'OPEN_LOOP' 'CLOSED_LOOP_UNICYCLE' 'CLOSED_LOOP_SLIP_0' 'CLOSED_LOOP_SLIP'
+        self.SIDE_SLIP_COMPENSATION = 'NONE' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
+        self.LONG_SLIP_COMPENSATION = 'NONE' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
+        self.SLIPPAGE_INFERENCE_TYPE = 'none'  # 'decision_trees','interpolator', 'none'
         self.ESTIMATE_ALPHA_WITH_ACTUAL_VALUES = True # makes difference for v >= 0.4
 
         # Parameters for open loop identification
@@ -87,7 +87,7 @@ class GenericSimulator(BaseController):
         self.GRAVITY_COMPENSATION = False
         self.SAVE_BAGS = False
 
-        self.USE_GUI = False
+        self.USE_GUI = True
         self.ADD_NOISE = False #FOR PAPER user_defined_reference
         self.coppeliaModel=f'tractor_ros_0.3_slope.ttt'
 
@@ -297,7 +297,7 @@ class GenericSimulator(BaseController):
 
         if self.TERRAIN and (self.NAVIGATION!='none' or self.SIMULATOR=='gazebo'):
             # spawn the terrain model in gazebo in case of navigation
-            spawnModel("tractor_description", "terrain", spawn_pos=np.array([0., 0., 0.]))
+            spawnModel("tractor_description", "trees", spawn_pos=np.array([0., 0., 0.]))
 
     def loadModelAndPublishers(self):
         super().loadModelAndPublishers()
@@ -1232,7 +1232,7 @@ def main_loop(p):
 
         # CLOSE loop control
         # generate reference trajectory
-        vel_gen = VelocityGenerator(simulation_time=20.,    DT=conf.robot_params[p.robot_name]['dt'])
+        vel_gen = VelocityGenerator(simulation_time=40.,    DT=conf.robot_params[p.robot_name]['dt'])
         if p.PLANNING == 'none':
             if p.SIMULATOR=='distributed3d':
                 p.des_x = p.terrain_consistent_pose_init[0]  # +0.1
