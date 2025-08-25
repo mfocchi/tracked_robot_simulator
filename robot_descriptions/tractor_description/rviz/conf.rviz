@@ -34,7 +34,7 @@ Panels:
   - Class: rviz/Time
     Name: Time
     SyncMode: 0
-    SyncSource: ""
+    SyncSource: PointCloud2
 Preferences:
   PromptSaveOnExit: true
 Toolbars:
@@ -195,7 +195,7 @@ Visualization Manager:
       Marker Topic: /arrow
       Name: MarkerArray
       Namespaces:
-        "": true
+        {}
       Queue Size: 100
       Value: true
     - Class: rviz/MarkerArray
@@ -203,7 +203,7 @@ Visualization Manager:
       Marker Topic: /vis
       Name: MarkerArray
       Namespaces:
-        "": true
+        {}
       Queue Size: 100
       Value: true
     - Class: rviz/TF
@@ -225,10 +225,12 @@ Visualization Manager:
           Value: false
         cingolo2:
           Value: false
+        front_left_wheel:
+          Value: true
+        front_right_wheel:
+          Value: true
         gps_link:
           Value: false
-        horizontal_frame:
-          Value: true
         ponte1:
           Value: false
         ponte2:
@@ -274,6 +276,10 @@ Visualization Manager:
               {}
             cingolo2:
               {}
+            front_left_wheel:
+              {}
+            front_right_wheel:
+              {}
             gps_link:
               {}
             ponte1:
@@ -299,8 +305,6 @@ Visualization Manager:
               {}
             supporto_ruote2:
               {}
-          horizontal_frame:
-            {}
       Update Interval: 0
       Value: true
     - Class: rviz/MarkerArray
@@ -310,6 +314,34 @@ Visualization Manager:
       Namespaces:
         "": true
       Queue Size: 100
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: Intensity
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 0; 0
+      Name: PointCloud2
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.009999999776482582
+      Style: Flat Squares
+      Topic: /lidar_points
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
       Value: true
   Enabled: true
   Global Options:
@@ -395,5 +427,5 @@ Window Geometry:
   Views:
     collapsed: true
   Width: 1850
-  X: 1094
-  Y: 27
+  X: 710
+  Y: 0
