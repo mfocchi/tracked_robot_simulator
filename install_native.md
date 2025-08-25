@@ -84,19 +84,11 @@ sudo apt install ros-ROS_VERSION-joint-trajectory-controller
 #### Pinocchio stuff
 
 ```
-sudo apt install ros-ROS_VERSION-crocoddyl
-```
-
-```
-sudo apt install ros-ROS_VERSION-eigenpy	
-```
-
-```
 sudo apt install ros-ROS_VERSION-pinocchio
 ```
 
 ```
-sudo apt-get install ros-ROS_VERSION-quadprog  
+sudo apt install ros-ROS_VERSION-eigenpy	
 ```
 
 
