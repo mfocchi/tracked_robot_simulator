@@ -277,6 +277,7 @@ class GenericSimulator(BaseController):
             self.joint_pub = ros.Publisher("/" + self.robot_name + "/joint_states", JointState, queue_size=1)
             if self.IDENT_TYPE!='NONE':
                 self.PLANNING = 'none'
+                self.ControlType = 'OPEN_LOOP'
                 self.groundtruth_pub = ros.Publisher("/" + self.robot_name + "/ground_truth", Odometry, queue_size=1, tcp_nodelay=True)
                 if self.IDENT_TYPE == 'WHEELS' and self.SIMULATOR == 'distributed3d':
                     self.TERRAIN = True
@@ -360,7 +361,7 @@ class GenericSimulator(BaseController):
                     if p.SIMULATOR=='distributed3d':
                         bag_name = f"ident_sim_fr_{p.friction_coefficient}_ramp_{p.RAMP_INCLINATION}_wheelL_{p.IDENT_WHEEL_L}.bag"
                     else:
-                        bag_name = f"ident_sim_wheelL_{p.IDENT_WHEEL_L}.bag"
+                        bag_name = f"ident_sim_fr_{p.friction_coefficient}_wheelL_{p.IDENT_WHEEL_L}.bag"
 
             else:
                 bag_name = f"{p.ControlType}_Long_{self.LONG_SLIP_COMPENSATION}_Side_{p.SIDE_SLIP_COMPENSATION}.bag"
@@ -1350,8 +1351,8 @@ def main_loop(p):
             output_file = os.environ['LOCOSIM_DIR'] + '/robot_control/base_controllers/tracked_robot/regressor/data3d/' + \
                           f"ident_wheels_fr_{p.friction_coefficient}_ramp_{p.RAMP_INCLINATION}_wheelL_{p.IDENT_WHEEL_L}.csv"
         else:
-            output_file = os.environ['LOCOSIM_DIR'] + '/robot_control/base_controllers/tracked_robot/regressor/data2d/' + \
-                          f"ident_wheels_fr_{p.friction_coefficient}_wheelL_{p.IDENT_WHEEL_L}.csv"
+            output_file = os.environ['LOCOSIM_DIR'] + '/robot_control/base_controllers/tracked_robot/regressor/data2d/' + str(p.friction_coefficient) + \
+                          f"/ident_wheels_fr_{p.friction_coefficient}_wheelL_{p.IDENT_WHEEL_L}.csv"
         data.to_csv(output_file, index=False)
         print(colored(f"Data saved to {output_file}", "red"))
 

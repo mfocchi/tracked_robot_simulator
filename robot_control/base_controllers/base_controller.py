@@ -34,7 +34,6 @@ from gazebo_msgs.srv import SetPhysicsPropertiesRequest
 import roslaunch
 import rospkg
 from gazebo_msgs.srv import ApplyBodyWrench
-import tf
 
 #other utils
 from base_controllers.utils.ros_publish import RosPub
@@ -70,7 +69,7 @@ class BaseController(threading.Thread):
         baseTwistW : numpy array
             base velocity linear (slice [0:3]) and angular (slice [3:6])
         b_R_w : numpy 2D array
-            rotation matrix from world frame to base_link frame
+            rotation matrix from base_link frame to world frame
         W_contacts : list of numpy arrays
             position of the feet expressed in the world frame
         grForcesW :  list of numpy arrays
@@ -118,7 +117,7 @@ class BaseController(threading.Thread):
         self.use_ground_truth_contacts = False
         self.apply_external_wrench = False
         self.time_external_wrench = 0.6
-        self.broadcaster = tf.TransformBroadcaster()
+
         self.use_torque_control = False
         self.real_robot = conf.robot_params[self.robot_name].get('real_robot', False)
         self.broadcast_world = broadcast_world
@@ -166,6 +165,7 @@ class BaseController(threading.Thread):
         ros.sleep(1.0)
         print(colored('SIMULATION Started', 'blue'))
 
+
     def loadModelAndPublishers(self, xacro_path=None):
 
         # Loading a robot model of robot (Pinocchio)
@@ -190,7 +190,7 @@ class BaseController(threading.Thread):
 
         self.apply_body_wrench = ros.ServiceProxy('/gazebo/apply_body_wrench', ApplyBodyWrench)
 
-
+        self.broadcaster = SafeTFBroadcaster()
 
     def initSubscribers(self):
         self.sub_jstate = ros.Subscriber("/" + self.robot_name + "/joint_states", JointState,
@@ -247,11 +247,12 @@ class BaseController(threading.Thread):
         self.u.setLegJointState(self.u.leg_map["RH"], grf, self.grForcesLocal_gt)
 
     def _receive_pose(self, msg):
-
-        self.quaternion[0]=    msg.pose.pose.orientation.x
-        self.quaternion[1]=    msg.pose.pose.orientation.y
-        self.quaternion[2]=    msg.pose.pose.orientation.z
-        self.quaternion[3]=    msg.pose.pose.orientation.w
+        self.quaternion = np.array([
+            msg.pose.pose.orientation.x,
+            msg.pose.pose.orientation.y,
+            msg.pose.pose.orientation.z,
+            msg.pose.pose.orientation.w
+        ])
         self.euler = np.array(euler_from_quaternion(self.quaternion))
         #unwrap
         self.euler, self.euler_old = unwrap_vector(self.euler, self.euler_old)
@@ -278,6 +279,7 @@ class BaseController(threading.Thread):
                                        ros.Time.now(), '/base_link', '/world')
 
     def _receive_jstate(self, msg):
+
         for msg_idx in range(len(msg.name)):
             for joint_idx in range(len(self.joint_names)):
                 if self.joint_names[joint_idx] == msg.name[msg_idx]:
@@ -396,6 +398,9 @@ class BaseController(threading.Thread):
         # b_X_w = motionVectorTransform(np.zeros(3), self.b_R_w)
         # b_X_w = pin.SE3(self.b_R_w, np.zeros(3)).action
         # self.gen_velocities[:6] = b_X_w.dot(self.baseTwistW)
+
+        #the v (generalized velocities) must follow Pinocchio's internal convention,
+        #which includes the base velocity expressed in the local (body) frame, i.e., the frame of the floating base.
         self.gen_velocities[:3] = self.b_R_w.dot(self.u.linPart(self.baseTwistW))
         self.gen_velocities[3:6] = self.b_R_w.dot(self.u.angPart(self.baseTwistW))
         self.gen_velocities[6:] = self.qd
