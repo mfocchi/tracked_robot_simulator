@@ -249,7 +249,7 @@ class GenericSimulator(BaseController):
     def startSimulator(self):
         self.decimate_publish = 1
         if self.SIMULATOR == 'gazebo':
-            world_name = None #'ramps.world'
+            world_name = 'trees.world' #None #'ramps.world'
             additional_args = ['spawn_x:=' + str(p.p0[0]),'spawn_y:=' + str(p.p0[1]),'spawn_Y:=' + str(p.p0[2]), 'rviz_conf:=$(find tractor_description)/rviz/conf.rviz']
             super().startSimulator(world_name=world_name, additional_args=additional_args)
         elif self.SIMULATOR == 'coppelia':
@@ -295,9 +295,11 @@ class GenericSimulator(BaseController):
                 spawnModel(package_name='tractor_description', model_name='lidar')
                 self.set_state = ros.ServiceProxy('/gazebo/set_model_state', SetModelState)
 
+        """
         if self.TERRAIN and (self.NAVIGATION!='none' or self.SIMULATOR=='gazebo'):
             # spawn the terrain model in gazebo in case of navigation
             spawnModel("tractor_description", "trees", spawn_pos=np.array([0., 0., 0.]))
+        """
 
     def loadModelAndPublishers(self):
         super().loadModelAndPublishers()
