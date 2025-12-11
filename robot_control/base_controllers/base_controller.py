@@ -49,6 +49,7 @@ import  base_controllers.params as conf
 robotName = "solo"
 
 
+
 class BaseController(threading.Thread):
     """
         This Class can be used to simulate floating base robots that
@@ -125,14 +126,6 @@ class BaseController(threading.Thread):
         print("Initialized basecontroller---------------------------------------------------------------")
 
     def startSimulator(self, world_name = None, launch_file = None, additional_args = None):
-        # needed to be able to load a custom world file
-        print(colored('Adding gazebo model path!', 'blue'))
-        custom_models_path = rospkg.RosPack().get_path('ros_impedance_controller')+"/worlds/models/"
-        if os.getenv("GAZEBO_MODEL_PATH") is not None:
-            os.environ["GAZEBO_MODEL_PATH"] +=":"+custom_models_path
-        else:
-            os.environ["GAZEBO_MODEL_PATH"] = custom_models_path
-
         # clean up previous process
         os.system("killall rosmaster rviz gzserver gzclient")
 
@@ -167,13 +160,7 @@ class BaseController(threading.Thread):
 
 
     def loadModelAndPublishers(self, xacro_path=None):
-
         # Loading a robot model of robot (Pinocchio)
-        if xacro_path is None:
-            xacro_path = rospkg.RosPack().get_path(
-                self.robot_name + '_description') + '/robots/' + self.robot_name + '.urdf.xacro'
-        else:
-            print("loading custom xacro path: ", xacro_path)
         self.robot = getRobotModelFloating(self.robot_name)
 
         # instantiating objects
@@ -189,7 +176,6 @@ class BaseController(threading.Thread):
         self.u.putIntoGlobalParamServer("verbose", self.verbose)
 
         self.apply_body_wrench = ros.ServiceProxy('/gazebo/apply_body_wrench', ApplyBodyWrench)
-
         self.broadcaster = SafeTFBroadcaster()
 
     def initSubscribers(self):
@@ -201,16 +187,17 @@ class BaseController(threading.Thread):
                                        queue_size=1, tcp_nodelay=True)
 
         if self.use_ground_truth_contacts:
-            self.sub_contact_lf = ros.Subscriber("/" + self.robot_name + "/lf_foot_bumper", ContactsState,
+
+            self.sub_contact_lf = ros.Subscriber("/" + self.robot_name + "/"+conf.robot_params[self.robot_name]['ee_frames'][0]+"_bumper", ContactsState,
                                                  callback=self._receive_contact_lf, queue_size=1, buff_size=2 ** 24,
                                                  tcp_nodelay=True)
-            self.sub_contact_rf = ros.Subscriber("/" + self.robot_name + "/rf_foot_bumper", ContactsState,
+            self.sub_contact_rf = ros.Subscriber("/" + self.robot_name + "/"+conf.robot_params[self.robot_name]['ee_frames'][1]+"_bumper", ContactsState,
                                                  callback=self._receive_contact_rf, queue_size=1, buff_size=2 ** 24,
                                                  tcp_nodelay=True)
-            self.sub_contact_lh = ros.Subscriber("/" + self.robot_name + "/lh_foot_bumper", ContactsState,
+            self.sub_contact_lh = ros.Subscriber("/" + self.robot_name +  "/"+conf.robot_params[self.robot_name]['ee_frames'][2]+"_bumper", ContactsState,
                                                  callback=self._receive_contact_lh, queue_size=1, buff_size=2 ** 24,
                                                  tcp_nodelay=True)
-            self.sub_contact_rh = ros.Subscriber("/" + self.robot_name + "/rh_foot_bumper", ContactsState,
+            self.sub_contact_rh = ros.Subscriber("/" + self.robot_name +  "/"+conf.robot_params[self.robot_name]['ee_frames'][3]+"_bumper", ContactsState,
                                                  callback=self._receive_contact_rh, queue_size=1, buff_size=2 ** 24,
                                                  tcp_nodelay=True)
 
@@ -247,19 +234,17 @@ class BaseController(threading.Thread):
         self.u.setLegJointState(self.u.leg_map["RH"], grf, self.grForcesLocal_gt)
 
     def _receive_pose(self, msg):
-        self.quaternion = np.array([
-            msg.pose.pose.orientation.x,
-            msg.pose.pose.orientation.y,
-            msg.pose.pose.orientation.z,
-            msg.pose.pose.orientation.w
-        ])
-        self.euler = np.array(euler_from_quaternion(self.quaternion))
-        #unwrap
-        self.euler, self.euler_old = unwrap_vector(self.euler, self.euler_old)
+        self.quaternion[0] = msg.pose.pose.orientation.x
+        self.quaternion[1] = msg.pose.pose.orientation.y
+        self.quaternion[2] = msg.pose.pose.orientation.z
+        self.quaternion[3] = msg.pose.pose.orientation.w
 
         self.basePoseW[self.u.sp_crd["LX"]] = msg.pose.pose.position.x
         self.basePoseW[self.u.sp_crd["LY"]] = msg.pose.pose.position.y
         self.basePoseW[self.u.sp_crd["LZ"]] = msg.pose.pose.position.z
+
+        self.euler = np.array(euler_from_quaternion(self.quaternion))
+
         self.basePoseW[self.u.sp_crd["AX"]] = self.euler[0]
         self.basePoseW[self.u.sp_crd["AY"]] = self.euler[1]
         self.basePoseW[self.u.sp_crd["AZ"]] = self.euler[2]
@@ -273,13 +258,9 @@ class BaseController(threading.Thread):
 
         # compute orientation matrix
         self.b_R_w = self.math_utils.rpyToRot(self.euler)
-        if self.broadcast_world:
-            self.broadcaster.sendTransform(self.u.linPart(self.basePoseW),
-                                       self.quaternion,
-                                       ros.Time.now(), '/base_link', '/world')
+
 
     def _receive_jstate(self, msg):
-
         for msg_idx in range(len(msg.name)):
             for joint_idx in range(len(self.joint_names)):
                 if self.joint_names[joint_idx] == msg.name[msg_idx]:
@@ -413,17 +394,16 @@ class BaseController(threading.Thread):
             self.B_contacts[leg] = self.robot.framePlacement(self.neutral_fb_jointstate,
                                                              self.robot.model.getFrameId(ee_frames[leg]),
                                                              update_kinematics=False ).translation.copy()
-            self.W_contacts[leg] = self.mapBaseToWorld(self.B_contacts[leg].transpose())
+            self.W_contacts[leg] = self.mapBaseToWorld(self.B_contacts[leg].transpose()) # as an alternative I could have used self.configuration in place of self.neutral_fb_jointstate in framePlacement
         if self.use_ground_truth_contacts:
             for leg in range(4):
                 self.w_R_lowerleg[leg] = self.b_R_w.transpose().dot(self.robot.data.oMf[self.lowerleg_index[leg]].rotation)
 
         for leg in range(4):
-            # TODO fix for different number of joint per leg
             self.J[leg] = self.robot.frameJacobian(self.neutral_fb_jointstate,
                                                    self.robot.model.getFrameId(ee_frames[leg]),
                                                    update=False,
-                                                   ref_frame=pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)[:3,6+leg*3:6+leg*3+3]
+                                                   ref_frame=pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)[:3,6+leg*self.numberOfJointsPerLeg:6+(leg+1)*self.numberOfJointsPerLeg]
             self.wJ[leg] = self.b_R_w.transpose().dot(self.J[leg])
             try:
                 self.J_inv[leg] = np.linalg.inv(self.J[leg])
@@ -445,7 +425,9 @@ class BaseController(threading.Thread):
         
         #compute contact forces
         self.estimateContactForces()
-        
+        #self.estimateContactForcesFloating()  # Robot Dynamics Lecture Notes, eq. 3.61
+        self.estimateLegContacts()
+
         # compute com / robot inertias
         self.comPosB, self.comVelB = copy.deepcopy(self.robot.robotComB(self.q, self.qd))
         self.comPoseW = copy.deepcopy(self.basePoseW)
@@ -459,24 +441,38 @@ class BaseController(threading.Thread):
         # inertia w.r.t the base frame origin
         self.compositeRobotInertiaB = self.robot.compositeRobotInertiaB(self.configuration)
 
+
+        if self.broadcast_world:
+            self.broadcaster.sendTransform(self.u.linPart(self.basePoseW),
+                                       self.quaternion,
+                                       ros.Time.now(), '/base_link', '/world')
+
     def estimateContactForces(self):           
         # estimate ground reaction forces from tau
         for leg in range(4):
             grf = self.wJ_inv[leg].T.dot(self.u.getLegJointState(leg,  self.h_joints-self.tau ))
             self.u.setLegJointState(leg, grf, self.grForcesW)
 
-            if self.contact_normal[leg].dot(grf) >= conf.robot_params[self.robot_name]['force_th']:
-                self.contact_state[leg] = True
+    def estimateContactForcesFloating(self):
+        # #computes contact forces from constraints F = (J*M^-1JT)^-1*(J*M^-1*(S^T*tau -h) +Jd*qd)
+        Jc = np.empty((0,self.robot.nv))
+        Jdqd = np.empty((0))
+        for leg in range(4):
+            frame_id = self.robot.model.getFrameId(conf.robot_params[self.robot_name]['ee_frames'][leg])
+            # I use self.neutral_fb_jointstate otherwise with self.configuration I get wrong results, and rotate for each leg
+            Jdqd =  np.append(Jdqd, self.b_R_w.T @  self.robot.frameClassicAcceleration(self.neutral_fb_jointstate, self.gen_velocities, None, frame_id).linear)
+            # to avoid computing the spatial Jacobian I first compute it in the Base frame (LOCAL_WORLD_ALIGNED) and then I rotate it
+            Jleg = self.b_R_w.T @ self.robot.frameJacobian(self.neutral_fb_jointstate, frame_id, update=False, ref_frame=pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)[:3, :]
+            Jc = np.vstack((Jc, Jleg))
+        Lambda = np.linalg.inv(Jc @ (np.linalg.inv(self.M) @ Jc.T))
+        S = np.hstack((np.zeros((self.robot.na, 6)), np.eye(self.robot.na)))
+        self.grForcesW = -Lambda @ ( Jc @ np.linalg.inv(self.M) @ ( S.T @ self.tau -self.h) + Jdqd )
 
-            else:
-                self.contact_state[leg] = False
-                # if self.time % 100:
-                #     print('contact lost on leg: ' + conf.robot_params[self.robot_name]['ee_frames'][leg])
-
+    def estimateLegContacts(self):
         if self.use_ground_truth_contacts:
             for leg in range(4):
-                grfLocal_gt = self.u.getLegJointState(leg,  self.grForcesLocal_gt)
-                if self.publish_contact_gt_in_wf:#if you spawn a robot platform it starts ti publish in WF
+                grfLocal_gt = self.u.getLegJointState(leg, self.grForcesLocal_gt)
+                if self.publish_contact_gt_in_wf:  # if you spawn a robot platform it starts ti publish in WF
                     grf_gt = grfLocal_gt
                 else:
                     grf_gt = self.w_R_lowerleg[leg] @ grfLocal_gt
@@ -488,6 +484,15 @@ class BaseController(threading.Thread):
 
                 else:
                     self.contact_state[leg] = False
+        else:
+            for leg in range(4):
+                grf = self.u.getLegJointState(leg, self.grForcesW)
+                if self.contact_normal[leg].dot(grf) >= conf.robot_params[self.robot_name]['force_th']:
+                    self.contact_state[leg] = True
+                else:
+                    self.contact_state[leg] = False
+                    # if self.time % 100:
+                    #     print('contact lost on leg: ' + conf.robot_params[self.robot_name]['ee_frames'][leg])
 
     def applyForce(self, Fx, Fy, Fz, Mx, My, Mz, duration, link_name="base_link"):
         from geometry_msgs.msg import Wrench, Point
@@ -590,9 +595,9 @@ class BaseController(threading.Thread):
         self.wJ = self.u.listOfArrays(4, np.zeros((3,3)))
         self.J_inv = self.u.listOfArrays(4, np.zeros((3,3)))
         self.wJ_inv = self.u.listOfArrays(4, np.zeros((3,3)))
-        self.W_contacts = self.u.listOfArrays(4, np.zeros((3,3)))
+        self.W_contacts = self.u.listOfArrays(4, np.zeros((3)))
         self.W_contacts_des = self.u.full_listOfArrays(4, 3)
-        self.B_contacts = self.u.listOfArrays(4, np.zeros((3,3)))
+        self.B_contacts = self.u.listOfArrays(4, np.zeros((3)))
         self.B_contacts_des = self.u.full_listOfArrays(4, 3)
         self.contact_state = self.u.full_listOfArrays(4, 1, 0, False)
         self.contact_normal = self.u.listOfArrays(4, np.array([0., 0., 1]))
@@ -630,6 +635,21 @@ class BaseController(threading.Thread):
             for legid in self.u.leg_map.keys():
                 leg = self.u.leg_map[legid]
                 self.lowerleg_index[leg] =  self.robot.model.getFrameId(self.lowerleg_frame_names[leg])
+
+        self.numberOfJointsPerLeg = self.getNumberOfJointsPerLeg()
+
+    def getNumberOfJointsPerLeg(self):
+        ee_frames = conf.robot_params[self.robot_name]['ee_frames']
+        first_foot_frame_id = self.robot.model.getFrameId(ee_frames[0])
+        joint_id = self.robot.model.frames[first_foot_frame_id].parentJoint
+        # Walk up the kinematic tree starting from the parent joint
+        count = 0
+        while joint_id != 1:
+            count += 1
+            joint_id = self.robot.model.parents[joint_id]
+        return count
+
+
 
     def logData(self):
         if (self.log_counter<conf.robot_params[self.robot_name]['buffer_size'] ):

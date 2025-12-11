@@ -1,7 +1,6 @@
 import numpy as np
 import math
 from base_controllers.utils.math_tools import unwrap_angle
-from base_controllers.tracked_robot.utils import constants
 from base_controllers.utils.math_tools import Math
 from scipy.optimize import fsolve
 # ------------------------------------ #
@@ -22,13 +21,12 @@ class Robot:
     pass
 
 class LyapunovController:
-    def __init__(self, params: LyapunovParams): #, matlab_engine = None):
+    def __init__(self, params: LyapunovParams,robot_constants = None): #, matlab_engine = None):
 
         self.K_P = params.K_P
         self.K_THETA = params.K_THETA
 
-        self.C1 = constants.side_slip_angle_coefficients[0]
-        self.C2 = constants.side_slip_angle_coefficients[1]
+
         self.SIDE_SLIP_COMPENSATION = 'MACHINE_LEARNING'
         self.log_e_x = []
         self.log_e_y = []
@@ -37,7 +35,7 @@ class LyapunovController:
         self.theta_old = 0.
         self.v_old = 0.
         self.omega_old = 0.
-
+        self.robot_constants = robot_constants
         self.params = params
         self.math_utils = Math()
         #self.eng = matlab_engine
@@ -121,6 +119,8 @@ class LyapunovController:
         ritorna i valori di linear e angular velocity
         """
         self.actual_state = actual_state
+        self.C1 = self.robot_constants.side_slip_angle_coefficients[0]
+        self.C2 = self.robot_constants.side_slip_angle_coefficients[1]
 
         if traj_finished:
             # save errors for plotting
@@ -223,8 +223,8 @@ class LyapunovController:
 
         elif self.SIDE_SLIP_COMPENSATION=='MACHINE_LEARNING':
             qd = np.zeros(2)
-            qd[0] = (v - omega * constants.TRACK_WIDTH / 2) / constants.SPROCKET_RADIUS  # left front
-            qd[1] = (v + omega * constants.TRACK_WIDTH / 2) / constants.SPROCKET_RADIUS  # right front
+            qd[0] = (v - omega * self.robot_constants.TRACK_WIDTH / 2) / self.robot_constants.SPROCKET_RADIUS  # left front
+            qd[1] = (v + omega * self.robot_constants.TRACK_WIDTH / 2) / self.robot_constants.SPROCKET_RADIUS  # right front
 
             if self.SLIPPAGE_INFERENCE_TYPE=='decision_trees':
                 if len(model_alpha.feature_names_)>2:

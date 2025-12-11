@@ -20,7 +20,7 @@ from gazebo_msgs.srv import SetModelConfigurationRequest
 from numpy import nan
 from matplotlib import pyplot as plt
 from base_controllers.utils.math_tools import unwrap_angle
-from  base_controllers.tracked_robot.utils import constants as constants
+from  base_controllers.tracked_robot.utils import maxxi_constants as constants
 from base_controllers.tracked_robot.controllers.lyapunov import LyapunovController, LyapunovParams, Robot
 from  base_controllers.tracked_robot.environment.trajectory import Trajectory, ModelsList
 from base_controllers.tracked_robot.velocity_generator import VelocityGenerator
@@ -40,6 +40,7 @@ from base_controllers.tracked_robot.simulator.tracked_vehicle_simulator3d import
 from base_controllers.utils.common_functions import getRobotModelFloating
 from base_controllers.utils.common_functions import checkRosMaster
 from base_controllers.utils.common_functions import spawnModel, launchFileNode
+
 import pandas as pd
 from gazebo_msgs.msg import ModelState
 from gazebo_msgs.srv import SetModelState
@@ -70,7 +71,7 @@ class GenericSimulator(BaseController):
         self.IDENT_LONG_SPEED = 0.2  #used only when IDENT_TYPE = 'V_OMEGA' (deprecated)
         self.IDENT_DIRECTION = 'left' #used only when IDENT_TYPE = 'V_OMEGA' (deprecated)
 
-        self.friction_coefficient = 0.4 # 0.1 (used only in 2d) / 0.4 (2d and 3d) (used for planning in paper)/ 0.6 (only 3d)  with slopes we need high friction otherwise alpha is too high
+        self.friction_coefficient = 0.1 # 0.1 (used only in 2d) / 0.4 (2d and 3d) (used for planning in paper)/ 0.6 (only 3d)  with slopes we need high friction otherwise alpha is too high
         #distributed friction coeff
 
         # initial pose
@@ -90,6 +91,7 @@ class GenericSimulator(BaseController):
         self.ADD_NOISE = False #FOR PAPER user_defined_reference
         self.coppeliaModel=f'tractor_ros_0.3_slope.ttt'
 
+        self.flag3D = ''
         if self.SIMULATOR == 'gazebo' and not self.ControlType=='CLOSED_LOOP_UNICYCLE' and not self.ControlType=='OPEN_LOOP':
             print(colored("Gazebo Model has no slippage, use self.SIMULATOR:=distributed2d","red"))
             sys.exit()
@@ -97,42 +99,49 @@ class GenericSimulator(BaseController):
             #add custom models from wolf, need to clone git@github.com:graiola/wolf_gazebo_resources.git
             custom_models_path = rospkg.RosPack().get_path('wolf_gazebo_resources') + "/models/"
             os.environ["GAZEBO_MODEL_PATH"] += ":" + custom_models_path
+        self.use_ground_truth_contacts = False
 
     def initVars(self):
         super().initVars()
         # load model
         try:
-            if self.SLIPPAGE_INFERENCE_TYPE=='decision_trees':
-                # regressor
-                self.regressor_beta_l = cb.CatBoostRegressor()
-                self.regressor_beta_r = cb.CatBoostRegressor()
-                self.regressor_alpha = cb.CatBoostRegressor()
-                self.model_beta_l = self.regressor_beta_l.load_model(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/model_beta_l'+self.flag3D+str(self.friction_coefficient)+'.cb')
-                self.model_beta_r = self.regressor_beta_r.load_model(os.environ['LOCOSIM_DIR'] + '/robot_control/base_controllers/tracked_robot/regressor/model_beta_r'+self.flag3D+str(self.friction_coefficient)+'.cb')
-                self.model_alpha = self.regressor_alpha.load_model(os.environ['LOCOSIM_DIR'] + '/robot_control/base_controllers/tracked_robot/regressor/model_alpha'+self.flag3D+str(self.friction_coefficient)+'.cb')
-                # loading with matlab
-                # import matlab.engine
-                # self.eng = matlab.engine.start_matlab()
-                # self.model_alpha = self.eng.load(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/training.mat')['alpha_model_18']
-                # self.model_beta_l = self.eng.load(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/training.mat')['beta_l_model_18']
-                # self.model_beta_r = self.eng.load(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/training.mat')['beta_r_model_18']
-            elif self.SLIPPAGE_INFERENCE_TYPE=='interpolator':
-                from scipy.interpolate import RBFInterpolator
-                data = os.environ['LOCOSIM_DIR']+f'/robot_control/base_controllers/tracked_robot/regressor/ident_wheels_sim_2d_'+str(self.friction_coefficient)+'.csv'
-                df = pd.read_csv(data, skiprows=1, names=['wheel_l', 'wheel_r', 'beta_l', 'beta_r', 'alpha']) #skiprows skips the first row which are the labels
-                x = df[['wheel_l', 'wheel_r']].values
-                y = df[['beta_l', 'beta_r', 'alpha']].values
-                # upsampling
-                # Fit an interpolator for each output dimension
-                self.model_beta_l = RBFInterpolator(x, y[:, 0], smoothing=0.1)
-                self.model_beta_r = RBFInterpolator(x, y[:, 1], smoothing=0.1)
-                self.model_alpha = RBFInterpolator(x, y[:, 2], smoothing=0.1)
+            if self.SIDE_SLIP_COMPENSATION != 'NONE' or self.LONG_SLIP_COMPENSATION != 'NONE':
+                if self.SLIPPAGE_INFERENCE_TYPE=='decision_trees':
+                    # regressor
+                    self.regressor_beta_l = cb.CatBoostRegressor()
+                    self.regressor_beta_r = cb.CatBoostRegressor()
+                    self.regressor_alpha = cb.CatBoostRegressor()
+                    self.model_beta_l = self.regressor_beta_l.load_model(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/model_beta_l'+self.flag3D+str(self.friction_coefficient)+'.cb')
+                    self.model_beta_r = self.regressor_beta_r.load_model(os.environ['LOCOSIM_DIR'] + '/robot_control/base_controllers/tracked_robot/regressor/model_beta_r'+self.flag3D+str(self.friction_coefficient)+'.cb')
+                    self.model_alpha = self.regressor_alpha.load_model(os.environ['LOCOSIM_DIR'] + '/robot_control/base_controllers/tracked_robot/regressor/model_alpha'+self.flag3D+str(self.friction_coefficient)+'.cb')
+                    # loading with matlab
+                    # import matlab.engine
+                    # self.eng = matlab.engine.start_matlab()
+                    # self.model_alpha = self.eng.load(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/training.mat')['alpha_model_18']
+                    # self.model_beta_l = self.eng.load(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/training.mat')['beta_l_model_18']
+                    # self.model_beta_r = self.eng.load(os.environ['LOCOSIM_DIR']+'/robot_control/base_controllers/tracked_robot/regressor/training.mat')['beta_r_model_18']
+                elif  self.SLIPPAGE_INFERENCE_TYPE=='NN':
+                    self.model_beta_l = SlipNN(output='beta_l')
+                    self.model_beta_r = SlipNN(output='beta_r')
+                    self.model_alpha = SlipNN(output='alpha')
+                elif self.SLIPPAGE_INFERENCE_TYPE=='interpolator':
+                    from scipy.interpolate import RBFInterpolator
+                    data = os.environ['LOCOSIM_DIR']+f'/robot_control/base_controllers/tracked_robot/regressor/ident_wheels_sim_2d_'+str(self.friction_coefficient)+'.csv'
+                    df = pd.read_csv(data, skiprows=1, names=['wheel_l', 'wheel_r', 'beta_l', 'beta_r', 'alpha']) #skiprows skips the first row which are the labels
+                    x = df[['wheel_l', 'wheel_r']].values
+                    y = df[['beta_l', 'beta_r', 'alpha']].values
+                    # upsampling
+                    # Fit an interpolator for each output dimension
+                    self.model_beta_l = RBFInterpolator(x, y[:, 0], smoothing=0.1)
+                    self.model_beta_r = RBFInterpolator(x, y[:, 1], smoothing=0.1)
+                    self.model_alpha = RBFInterpolator(x, y[:, 2], smoothing=0.1)
         except Exception as e:
             print(colored(f"Error initializing slippage inference model:{e}","red"))
             self.model_beta_l = None
             self.model_beta_r = None
             self.model_alpha = None
-            print(colored(f"No Machine Learning  model for need for friction coefficient {self.friction_coefficient}, you need to generate the models by running tracked_robot/regressor/model_slippage_updated.py","red"))
+            print(colored(f"No Machine Learning  model for need for friction coefficient {self.friction_coefficient}, you need to generate the models by running tracked_robot/regressor/generate_slippage_regressor/3d.py","red"))
+            sys.exit()
         ## add your variables to initialize here
         self.ctrl_v = 0.
         self.ctrl_omega = 0.0
@@ -271,7 +280,7 @@ class GenericSimulator(BaseController):
                     print(colored("wrong friction coeff, can be 0.1 or 0.4"))
                 groundParams = Ground(friction_coefficient=self.friction_coefficient)
                 self.tracked_vehicle_simulator = TrackedVehicleSimulator(dt=conf.robot_params[p.robot_name]['dt'], ground=groundParams)
-                self.flag3D=''
+
             self.robot = getRobotModelFloating(self.robot_name)
             # instantiating additional publishers
             self.joint_pub = ros.Publisher("/" + self.robot_name + "/joint_states", JointState, queue_size=1)
@@ -293,7 +302,7 @@ class GenericSimulator(BaseController):
     def loadModelAndPublishers(self):
         super().loadModelAndPublishers()
         self.reset_joints_client = ros.ServiceProxy('/gazebo/set_model_configuration', SetModelConfiguration)
-        self.des_vel = ros.Publisher("/des_vel", JointState, queue_size=1, tcp_nodelay=True)
+        self.des_vel_pub = ros.Publisher("/des_vel", JointState, queue_size=1, tcp_nodelay=True)
 
         #self.clock_pub = ros.Publisher('/clock', Clock, queue_size=10)
 
@@ -570,46 +579,46 @@ class GenericSimulator(BaseController):
                 plotFrameLinear(name='position',time_log=p.time_log,des_Pose_log = p.des_state_log, Pose_log=p.state_log, custom_labels=(["X","Y","THETA"]))
                 #plotFrameLinear(name='velocity', time_log=p.time_log, Twist_log=np.vstack((p.baseTwistW_log[:2,:],p.baseTwistW_log[5,:])))
 
-            if self.SIMULATOR != 'gazebo':
-                #plot velocities in the base frame
-                plt.figure()
-                ax1 = plt.subplot(2, 1, 1)
-                plt.plot(self.time_log, self.b_base_vel_log[0, :], "-b", label="vx")
-                plt.ylabel("b_vx")
-                plt.legend()
-                plt.grid(True)
-                plt.subplot(2, 1, 2, sharex=ax1)
-                plt.plot(self.time_log, self.b_base_vel_log[1, :], "-b", label="vy")
-                plt.ylabel("b_vy")
-                plt.legend()
-                plt.grid(True)
+            #if self.SIMULATOR != 'gazebo':
+            #plot velocities in the base frame
+            plt.figure()
+            ax1 = plt.subplot(2, 1, 1)
+            plt.plot(self.time_log, self.b_base_vel_log[0, :], "-b", label="vx")
+            plt.ylabel("b_vx")
+            plt.legend()
+            plt.grid(True)
+            plt.subplot(2, 1, 2, sharex=ax1)
+            plt.plot(self.time_log, self.b_base_vel_log[1, :], "-b", label="vy")
+            plt.ylabel("b_vy")
+            plt.legend()
+            plt.grid(True)
 
-                #slippage vars
-                plt.figure()
-                ax2 = plt.subplot(4, 1, 1)
-                plt.plot(self.time_log, self.beta_l_log, "-b", label="real")
-                plt.plot(self.time_log, self.beta_l_control_log, "-r", label="control")
-                plt.ylabel("beta_l")
-                plt.legend()
-                plt.grid(True)
-                plt.subplot(4, 1, 2,  sharex=ax2)
-                plt.plot(self.time_log, self.beta_r_log, "-b", label="real")
-                plt.plot(self.time_log, self.beta_r_control_log, "-r", label="control")
-                plt.ylabel("beta_r")
-                plt.legend()
-                plt.grid(True)
-                plt.subplot(4, 1, 3,  sharex=ax2)
-                plt.plot(self.time_log, self.alpha_log, "-b", label="real")
-                plt.plot(self.time_log, self.alpha_control_log, "-r", label="control")
-                plt.ylabel("alpha")
-                #plt.ylim([-0.4, 0.4])
-                plt.grid(True)
-                plt.legend()
-                plt.subplot(4, 1, 4,  sharex=ax2)
-                plt.plot(self.time_log, self.radius_log, "-b")
-                plt.ylim([-1,1])
-                plt.ylabel("radius")
-                plt.grid(True)
+            #slippage vars
+            plt.figure()
+            ax2 = plt.subplot(4, 1, 1)
+            plt.plot(self.time_log, self.beta_l_log, "-b", label="real")
+            plt.plot(self.time_log, self.beta_l_control_log, "-r", label="control")
+            plt.ylabel("beta_l")
+            plt.legend()
+            plt.grid(True)
+            plt.subplot(4, 1, 2,  sharex=ax2)
+            plt.plot(self.time_log, self.beta_r_log, "-b", label="real")
+            plt.plot(self.time_log, self.beta_r_control_log, "-r", label="control")
+            plt.ylabel("beta_r")
+            plt.legend()
+            plt.grid(True)
+            plt.subplot(4, 1, 3,  sharex=ax2)
+            plt.plot(self.time_log, self.alpha_log, "-b", label="real")
+            plt.plot(self.time_log, self.alpha_control_log, "-r", label="control")
+            plt.ylabel("alpha")
+            #plt.ylim([-0.4, 0.4])
+            plt.grid(True)
+            plt.legend()
+            plt.subplot(4, 1, 4,  sharex=ax2)
+            plt.plot(self.time_log, self.radius_log, "-b")
+            plt.ylim([-1,1])
+            plt.ylabel("radius")
+            plt.grid(True)
 
             if p.ControlType != 'OPEN_LOOP':
                 # tracking errors
@@ -672,7 +681,7 @@ class GenericSimulator(BaseController):
         msg.name = self.joint_names
         msg.header.stamp = ros.Time.from_sec(self.time)
         msg.velocity = np.array([v_des, omega_des])
-        self.des_vel.publish(msg)
+        self.des_vel_pub.publish(msg)
 
 
         return qd_des
@@ -1257,7 +1266,7 @@ def main_loop(p):
 
         # Lyapunov controller parameters
         params = LyapunovParams(K_P=10., K_THETA=1., DT=conf.robot_params[p.robot_name]['dt'], ESTIMATE_ALPHA_WITH_ACTUAL_VALUES=p.ESTIMATE_ALPHA_WITH_ACTUAL_VALUES) #high gains 15 5 / low gains 10 1 (default)
-        p.controller = LyapunovController(params=params)#, matlab_engine = p.eng)
+        p.controller = LyapunovController(params=params, robot_constants=constants)#, matlab_engine = p.eng)
         p.controller.setSideSlipCompensationType(p.SIDE_SLIP_COMPENSATION)
         p.controller.setSlippageInferenceType(p.SLIPPAGE_INFERENCE_TYPE)
         p.traj.set_initial_time(start_time=p.time)
@@ -1287,14 +1296,12 @@ def main_loop(p):
                 if traj_finished:
                     break
             if p.ControlType=='CLOSED_LOOP_SLIP_0':
-                p.ctrl_v, p.ctrl_omega,  p.V, p.V_dot, p.alpha_control = p.controller.control_alpha(robot_state, p.time, p.des_x, p.des_y, p.des_theta, p.v_d, p.omega_d,  p.v_dot_d, p.omega_dot_d, traj_finished,p.model_alpha,approx=True)
+                p.ctrl_v, p.ctrl_omega,  p.V, p.V_dot, p.alpha_control = p.controller.control_alpha(robot_state, p.time, p.des_x, p.des_y, p.des_theta, p.v_d, p.omega_d,  p.v_dot_d, p.omega_dot_d, traj_finished, p.model_alpha,approx=True)
                 #p.des_theta -=  p.controller.alpha_exp(p.v_d, p.omega_d, p.model_alpha)  # we track theta_d -alpha_d
 
             if p.ControlType == 'CLOSED_LOOP_SLIP':
-                p.ctrl_v, p.ctrl_omega, p.V, p.V_dot, p.alpha_control = p.controller.control_alpha(robot_state, p.time, p.des_x, p.des_y, p.des_theta, p.v_d, p.omega_d,  p.v_dot_d, p.omega_dot_d, traj_finished,p.model_alpha, approx=False)
+                p.ctrl_v, p.ctrl_omega, p.V, p.V_dot, p.alpha_control = p.controller.control_alpha(robot_state, p.time, p.des_x, p.des_y, p.des_theta, p.v_d, p.omega_d,  p.v_dot_d, p.omega_dot_d, traj_finished, p.model_alpha, approx=False)
                 #p.des_theta -= p.controller.alpha_exp(p.v_d, p.omega_d, p.model_alpha)  # we track theta_d -alpha_d
-
-
 
             if p.ControlType=='CLOSED_LOOP_UNICYCLE':
                 p.ctrl_v, p.ctrl_omega, p.V, p.V_dot = p.controller.control_unicycle(robot_state, p.time, p.des_x, p.des_y, p.des_theta, p.v_d, p.omega_d, traj_finished)
@@ -1333,7 +1340,7 @@ def main_loop(p):
             p.rate.sleep()
             p.time = np.round(p.time + np.array([conf.robot_params[p.robot_name]['dt']]), 4) # to avoid issues of dt 0.0009999
 
-    # always save csv when you do ident
+    # always save csv when you do ident (bag file deprecated)
     if p.IDENT_TYPE == 'WHEELS':
         not_nans = ~np.isnan(p.time_log)
         data = pd.DataFrame({
@@ -1353,6 +1360,9 @@ def main_loop(p):
         else:
             output_file = os.environ['LOCOSIM_DIR'] + '/robot_control/base_controllers/tracked_robot/regressor/data2d/' + str(p.friction_coefficient) + \
                           f"/ident_wheels_fr_{p.friction_coefficient}_wheelL_{p.IDENT_WHEEL_L}.csv"
+        output_dir = os.path.dirname(output_file)
+        # creates all missing directories in the path (and won’t complain if they already exist).
+        os.makedirs(output_dir, exist_ok=True)
         data.to_csv(output_file, index=False)
         print(colored(f"Data saved to {output_file}", "red"))
 
