@@ -18,7 +18,6 @@ To install the code we strongly suggest to install a docker image to avoid  comp
 To see how to install the docker image, please follow the instructions below for your favourite operating system:
 
 - 🐧 [Linux](https://github.com/mfocchi/tracked_robot_simulator/tree/master/install_docker_linux.md)
-- 🍏 [MacOS](https://github.com/mfocchi/tracked_robot_simulator/tree/master/install_docker_mac.md)
 - 🪟 [Windows](https://github.com/mfocchi/tracked_robot_simulator/tree/master/install_docker_windows.md).
 
 # **Running the Code**  
