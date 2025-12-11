@@ -1,20 +1,25 @@
 # Pseudo-kinematic trajectory control and planning of tracked vehicles
 
+This is the code associated to the paper:
 
+Michele Focchi, Daniele Fontanelli, Davide Stocco, Luigi Palopoli, **Pseudo-kinematic trajectory control and planning of tracked vehicles**, Robotics and Autonomous Systems, 2025.
 
-
-Michele Focchi, Daniele Fontanelli, Davide Stocco, Luigi Palopoli
+open access: https://www.sciencedirect.com/science/article/pii/S0921889025003793?dgcid=rss_sd_all
 
 This repository is a reduced version of [Locosim](https://github.com/mfocchi/locosim) ([preprint](https://arxiv.org/abs/2305.02107)) and it is intended for reproducing simulations and experiments
-presented in the manuscript: Pseudo-kinematic trajectory control and planning of tracked vehicles
+presented in the manuscript.
 
 To run the optimization part of the code a Matlab license is required. 
 
 # Installing the code
 
-To install natively the code follow these detailed installation [instructions](https://github.com/mfocchi/tracked_robot_simulator/tree/master/install_native.md). However, we strongly suggest to install a docker image to avoid  compatibility issues. To see how to install the docker image follow these [instructions](https://github.com/mfocchi/tracked_robot_simulator/tree/master/install_docker.md). 
+To install the code we strongly suggest to install a docker image to avoid  compatibility issues. 
 
+To see how to install the docker image, please follow the instructions below for your favourite operating system:
 
+- 🐧 [Linux](https://github.com/mfocchi/tracked_robot_simulator/tree/master/install_docker_linux.md)
+- 🍏 [MacOS](https://github.com/mfocchi/tracked_robot_simulator/tree/master/install_docker_mac.md)
+- 🪟 [Windows](https://github.com/mfocchi/tracked_robot_simulator/tree/master/install_docker_windows.md).
 
 # **Running the Code**  
 
@@ -53,6 +58,18 @@ The file **closed_loop_simulation.py** has certain option flags that are summari
 | SAVE_BAGS              | False, True                                              |                                                              |
 | ADD_NOISE              | False, True                                              |                                                              |
 
+## How to get the regressors
+
+To run the slippage-aware controller you need the models of the regressores, you have two options: 1) unzip the  models, 2) perform the identification from scratch both on flat and sloped terrain.
+
+### Unzip the Models
+
+For the inpatients you can unzip the models for both flat and sloped terrains:
+
+```
+unzip robot_control/base_controllers/tracked_robot/regressor/models.zip -d robot_control/base_controllers/tracked_robot/regressor/
+```
+
 ### Regressor Identification on flat terrain
 
 The slippage regressor will be used if ControlType=CLOSED_LOOP_SLIP_0  with  SIDE_SLIP_COMPENSATION=MACHINE_LEARNING and LONG_SLIP_COMPENSATION=MACHINE_LEARNING. To run the identification tests on flat terrain:
@@ -70,8 +87,6 @@ The slippage regressor will be used if ControlType=CLOSED_LOOP_SLIP_0  with  SID
 
 2. run the simulation, many .csv files will be generated  in the folder **robot_control/tracked_robot/regressor/data2d**
 3. run **generate_slippage_regressor2d.py**, set the friction coefficient to either 0.1 and 0.4. This command will generate the catboost model files **model_alpha0.1.cb, model_beta_l0.1.cb, ** **model_beta_r0.1.cb** and **model_alpha0.4.cb, model_beta_l0.4.cb, ** **model_beta_r0.4.cb**
-
-
 
 ### Regressor Identification on sloped terrain
 
@@ -131,10 +146,10 @@ NAVIGATION =  'none'
 ADD_NOISE=False
 ```
 
-2. run matlab__optimization/ros/ros_node.m
+2. run matlab__optimization/ros/ros_node.m  
 3. run closed_loop_simulation.py
 
-### **Statistical analisys**
+### **Statistical analyses**
 
 To generate Table 4:
 
