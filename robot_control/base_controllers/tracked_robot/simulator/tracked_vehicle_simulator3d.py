@@ -253,8 +253,9 @@ class TrackedVehicleSimulator3D:
                 self.w_Fg_patch_l[patch_counter, :] = np.array([0.0, 0.0, 0.0])
                 self.w_Mg_patch_l[patch_counter, :] = np.array([0.0, 0.0, 0.0])
             if self.enable_visuals:
-                self.ros_pub.add_arrow(patch_pos, self.w_Fg_patch_l[patch_counter, :] / 50.,
-                                       color=np.array([1.-self.patch_stiffness_l[patch_counter]/self.max_patch_stiffness_l, 0., self.patch_stiffness_l[patch_counter]/self.max_patch_stiffness_l])) #low stiffness is red
+                if self.max_patch_stiffness_l != 0 and self.max_patch_stiffness_r !=0:
+                    self.ros_pub.add_arrow(patch_pos, self.w_Fg_patch_l[patch_counter, :] / 50.,
+                                           color=np.array([1.-self.patch_stiffness_l[patch_counter]/self.max_patch_stiffness_l, 0., self.patch_stiffness_l[patch_counter]/self.max_patch_stiffness_l])) #low stiffness is red
             patch_counter += 1
 
         # compute ditributed forces for RIGHT track
@@ -309,8 +310,9 @@ class TrackedVehicleSimulator3D:
             resultant_pos_r[1] += patch_pos_r[1] * fg_r[2]
             resultant_pos_r[2] += patch_pos_r[2] * fg_r[2]
             Fg_r_z += fg_r[2]
-        resultant_pos_l/=Fg_l_z
-        resultant_pos_r/= Fg_r_z
+        if Fg_l_z !=0 and Fg_r_z!=0:
+            resultant_pos_l/=Fg_l_z
+            resultant_pos_r/= Fg_r_z
         if self.DEBUG:
             self.ros_pub.add_arrow(resultant_pos_l, np.array([0., 0., Fg_l_z]) / 1000., "red")
             self.ros_pub.add_arrow(resultant_pos_r, np.array([0., 0., Fg_r_z]) / 1000., "red")
