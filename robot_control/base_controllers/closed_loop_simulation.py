@@ -35,8 +35,8 @@ import pinocchio as pin
 from base_controllers.components.coppelia_manager import CoppeliaManager
 from optim_interfaces.srv import Optim, OptimRequest
 import scipy.io.matlab as mio
-from base_controllers.tracked_robot.simulator.tracked_vehicle_simulator import TrackedVehicleSimulator, Ground
-from base_controllers.tracked_robot.simulator.tracked_vehicle_simulator3d import  TrackedVehicleSimulator3D, Ground3D
+from base_controllers.open_loop_simulation2d import TrackedVehicleSimulator, Ground
+from base_controllers.open_loop_simulation3d import  TrackedVehicleSimulator3D, Ground3D
 from base_controllers.utils.common_functions import getRobotModelFloating
 from base_controllers.utils.common_functions import checkRosMaster
 from base_controllers.utils.common_functions import spawnModel, launchFileNode

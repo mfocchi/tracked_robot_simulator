@@ -74,7 +74,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # -----------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-scipy \
-    python3-matplotlib \
     python3-termcolor \
     python3-tk \
     python3-catkin-pkg \
@@ -172,7 +171,7 @@ RUN curl -fsSL \
 RUN pip3 install --no-deps /tmp/open3d-0.18.0-cp38-cp38-manylinux_2_27_x86_64.whl
 
 # Install only the minimal required deps
-RUN pip3 install numpy addict tqdm pyquaternion Pillow dash scikit-learn
+RUN pip3 install  matplotlib==3.7.4 numpy addict tqdm pyquaternion   Pillow==10.4.0 dash scikit-learn
 
 
 
