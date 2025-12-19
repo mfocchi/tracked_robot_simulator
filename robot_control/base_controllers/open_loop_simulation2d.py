@@ -4,25 +4,20 @@ from base_controllers.tracked_robot.simulator.track import TrackParams
 from numpy.testing import assert_almost_equal
 from matplotlib import pyplot as plt
 from  base_controllers.tracked_robot.environment.trajectory import Trajectory, ModelsList
-import base_controllers.tracked_robot.utils.constants as constants
+import base_controllers.tracked_robot.utils.maxxi_constants as constants
 from base_controllers.utils.unit_test import UnitTest
 
 
 class Ground():
     def __init__(self,
-                 cohesion=0.0001040 * 1e6,
+                 cohesion=0,
                  K=0.001,
                  shear_resistance_angle=20/180.*2*np.pi,
-                 mu_t=0.65,
                  g=9.81,
-                 fr=0.6,
                  friction_coefficient=0.1):
         self.cohesion = cohesion  # [Pa] #not used
         self.K = K  # [m]
         self.shear_resistance_angle = shear_resistance_angle  # [rad] #not used
-        self.mu_t = mu_t #not used
-        self.g = g
-        self.fr = fr #not used
         self.friction_coefficient = friction_coefficient
         
 
