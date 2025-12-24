@@ -201,7 +201,7 @@ PY
 RUN echo '#!/bin/bash' >> /etc/bash.bashrc && \
     echo 'source /opt/ros/noetic/setup.bash' >> /etc/bash.bashrc && \
     echo '[ -f /root/ros_ws/install/setup.bash ] && source /root/ros_ws/install/setup.bash' >> /etc/bash.bashrc && \
-    echo 'export LOCOSIM_DIR=/root/ros_ws/src/tracked_robot_simulation' >> /etc/bash.bashrc && \
+    echo 'export LOCOSIM_DIR=/root/ros_ws/src/tracked_robot_simulator' >> /etc/bash.bashrc && \
     echo 'export PATH=/opt/openrobots/bin:$PATH' >> /etc/bash.bashrc && \
     echo 'export DISABLE_ROS1_EOL_WARNINGS=1' >> /etc/bash.bashrc && \    
     echo 'export PYTHONPATH=/opt/openrobots/lib/python3.8/site-packages:$LOCOSIM_DIR/robot_control:$PYTHONPATH' >> /etc/bash.bashrc && \
