@@ -12,7 +12,7 @@ $./install_docker.sh
 ```
 - If everything went smooth you should read: **To start docker, reboot the system!** You can now restart the PC so that all changes made can be applied.
 - If you look into your **host** Ubuntu home directory, you will see that the **trento_lab_home** directory has been created with **/ros_ws/src** subfolders.
-- now you can clone the loco_nav code inside the  **trento_lab_home/ros_ws/src** folder
+- now you can clone the code inside the  **trento_lab_home/ros_ws/src** folder
 
 
 ```
