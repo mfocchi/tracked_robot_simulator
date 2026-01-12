@@ -500,24 +500,24 @@ class GenericSimulator(BaseController):
         if np.mod(self.pub_counter, self.decimate_publish) == 0:
             self.joint_pub.publish(msg)  # this publishes in tractor/joint_state q = q_des, it is just for rviz to see the joints of the wheels moving
 
-            self.tracked_vehicle_simulator.simulateOneStep(qd_des[0], qd_des[1])
-            pose, pose_der =  self.tracked_vehicle_simulator.getRobotState()
-            #fill in base state
-            self.basePoseW[:2] = pose[:2]
-            self.basePoseW[self.u.sp_crd["AZ"]] = pose[2]
-            self.baseTwistW[:2] = pose_der[:2]
-            self.baseTwistW[self.u.sp_crd["AZ"]] = pose_der[2]
+        self.tracked_vehicle_simulator.simulateOneStep(qd_des[0], qd_des[1])
+        pose, pose_der =  self.tracked_vehicle_simulator.getRobotState()
+        #fill in base state
+        self.basePoseW[:2] = pose[:2]
+        self.basePoseW[self.u.sp_crd["AZ"]] = pose[2]
+        self.baseTwistW[:2] = pose_der[:2]
+        self.baseTwistW[self.u.sp_crd["AZ"]] = pose_der[2]
 
-            self.euler = self.u.angPart(self.basePoseW)
-            self.quaternion = pin.Quaternion(pin.rpy.rpyToMatrix(self.euler))
-            self.b_R_w = self.math_utils.eul2Rot(self.euler).T
-            #publish TF for rviz
-            self.broadcaster.sendTransform(self.u.linPart(self.basePoseW),
-                                           self.quaternion,
-                                           ros.Time.from_sec(self.time), '/base_link', '/world')
+        self.euler = self.u.angPart(self.basePoseW)
+        self.quaternion = pin.Quaternion(pin.rpy.rpyToMatrix(self.euler))
+        self.b_R_w = self.math_utils.eul2Rot(self.euler).T
+        #publish TF for rviz
+        self.broadcaster.sendTransform(self.u.linPart(self.basePoseW),
+                                       self.quaternion,
+                                       ros.Time.from_sec(self.time), '/base_link', '/world')
 
-            self.q = q_des.copy()
-            self.qd = qd_des.copy()
+        self.q = q_des.copy()
+        self.qd = qd_des.copy()
 
         if self.TERRAIN: #this is published to show mesh in rviz
             self.ros_pub.add_mesh("tractor_description", "/meshes/terrain.stl", position=np.array([0., 0., 0.0]), color="red", alpha=1.0)
