@@ -36,6 +36,7 @@ import scipy.io.matlab as mio
 from base_controllers.open_loop_simulation2d import TrackedVehicleSimulator, Ground
 from base_controllers.open_loop_simulation3d import  TrackedVehicleSimulator3D, Ground3D
 from base_controllers.utils.common_functions import getRobotModelFloating
+from base_controllers.utils.common_functions import getRobotModelFloating
 from base_controllers.utils.common_functions import checkRosMaster
 
 import pandas as pd
@@ -54,9 +55,9 @@ class GenericSimulator(BaseController):
         print("Initialized tractor controller---------------------------------------------------------------")
         self.SIMULATOR = 'distributed3d'#  'distributed2d'(2d) 'distributed3d'
         self.TERRAIN = True #True: Slopes False: Flat terrain
-        self.ControlType = 'CLOSED_LOOP_SLIP_0' #'OPEN_LOOP' 'CLOSED_LOOP_UNICYCLE' 'CLOSED_LOOP_SLIP_0'
-        self.SIDE_SLIP_COMPENSATION = 'MACHINE_LEARNING' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
-        self.LONG_SLIP_COMPENSATION = 'MACHINE_LEARNING' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
+        self.ControlType = 'CLOSED_LOOP_UNICYCLE' #'OPEN_LOOP' 'CLOSED_LOOP_UNICYCLE' 'CLOSED_LOOP_SLIP_0'
+        self.SIDE_SLIP_COMPENSATION = 'NONE' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
+        self.LONG_SLIP_COMPENSATION = 'NONE' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
         self.SLIPPAGE_INFERENCE_TYPE = 'decision_trees'  # 'decision_trees','interpolator'
         self.ESTIMATE_ALPHA_WITH_ACTUAL_VALUES = True # makes difference for v >= 0.4
 
@@ -234,7 +235,7 @@ class GenericSimulator(BaseController):
             conf.robot_params[self.robot_name]['buffer_size'] *= 5
             conf.robot_params[p.robot_name]['dt'] = 0.001
             groundParams = Ground3D(friction_coefficient=self.friction_coefficient, terrain_stiffness=1e05, terrain_damping=0.5e04)
-            self.tracked_vehicle_simulator = TrackedVehicleSimulator3D(dt=conf.robot_params[p.robot_name]['dt'],  ground=groundParams, USE_MESH=self.TERRAIN, enable_visuals=True, contact_distribution=True)
+            self.tracked_vehicle_simulator = TrackedVehicleSimulator3D(dt=conf.robot_params[p.robot_name]['dt'],  ground=groundParams, USE_MESH=self.TERRAIN, enable_visuals=False, contact_distribution=False)
             self.flag3D='_3d_'
         else: #'distributed2d':
             if (self.friction_coefficient != 0.4) or (self.friction_coefficient != 0.1):
@@ -371,6 +372,8 @@ class GenericSimulator(BaseController):
                 self.terrain_consistent_pose_init[3] = start_roll
                 self.terrain_consistent_pose_init[4] = start_pitch
                 self.terrain_consistent_pose_init[5] = start_yaw
+                self.quaternion_start = pin.Quaternion(pin.rpy.rpyToMatrix(self.terrain_consistent_pose_init[3:]))
+
                 # init com self.vehicle_param.height above ground
                 w_R_terr = p.math_utils.eul2Rot(np.array([start_roll, start_pitch, start_yaw]))
                 self.terrain_consistent_pose_init[:3] += self.tracked_vehicle_simulator.consider_robot_height * (w_R_terr[:, 2] * self.tracked_vehicle_simulator.vehicle_param.height)
@@ -969,7 +972,7 @@ def main_loop(p):
             if p.PLANNING == 'clothoids':
                 # from base_controllers.utils.profiler import Profiler
                 # profiler = Profiler(function_name=p.getClothoids)
-                des_x_vec, des_y_vec, des_theta_vec, v_ol, omega_ol, plan_dt = p.getClothoids(long_vel=0.4, dt = 0.001)
+                des_x_vec, des_y_vec, des_theta_vec, v_ol, omega_ol, plan_dt = p.getClothoids(long_vel=0.4, dt = conf.robot_params[p.robot_name]['dt'])
                 #print(colored(f"Computation time per Clothoid call: {profiler.get_total_time()} seconds", "red"))
             else:  # matlab planning
                 des_x_vec, des_y_vec, des_theta_vec, v_ol, omega_ol, plan_dt = p.getTrajFromMatlab()
