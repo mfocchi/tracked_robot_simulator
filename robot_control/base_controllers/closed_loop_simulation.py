@@ -47,6 +47,10 @@ from gazebo_msgs.srv import SetModelState
 from gazebo_msgs.srv import SetModelStateRequest
 from rosgraph_msgs.msg import Clock
 
+#importing the files implementing Dubins on sphere
+import CubicEquationSolver
+import Path_generation_sphere as sphere
+
 robotName = "tractor" # needs to inherit BaseController
 
 class GenericSimulator(BaseController):
@@ -55,9 +59,9 @@ class GenericSimulator(BaseController):
         super().__init__(robot_name=robot_name, external_conf = conf)
         self.torque_control = False
         print("Initialized tractor controller---------------------------------------------------------------")
-        self.SIMULATOR = 'distributed2d'#, 'gazebo(unicycle)', 'coppelia'(deprecated), 'distributed2d'(2d) 'distributed3d'
+        self.SIMULATOR = 'distributed3d'#, 'gazebo(unicycle)', 'coppelia'(deprecated), 'distributed2d'(2d) 'distributed3d'
         self.NAVIGATION = 'none'  # 'none', '2d' , '3d'
-        self.TERRAIN = False #True: Slopes False: Flat terrain
+        self.TERRAIN = True #True: Slopes False: Flat terrain
 
         self.STATISTICAL_ANALYSIS = False #samples targets and orientations in a given space around the robot and compute average tracking error
         self.ControlType = 'CLOSED_LOOP_SLIP_0' #'OPEN_LOOP' 'CLOSED_LOOP_UNICYCLE' 'CLOSED_LOOP_SLIP_0' 'CLOSED_LOOP_SLIP'
@@ -71,17 +75,21 @@ class GenericSimulator(BaseController):
         self.IDENT_LONG_SPEED = 0.2  #used only when IDENT_TYPE = 'V_OMEGA' (deprecated)
         self.IDENT_DIRECTION = 'left' #used only when IDENT_TYPE = 'V_OMEGA' (deprecated)
 
-        self.friction_coefficient = 0.1 # 0.1 (used only in 2d) / 0.4 (2d and 3d) (used for planning in paper)/ 0.6 (only 3d)  with slopes we need high friction otherwise alpha is too high
+        self.friction_coefficient = 0.6 # 0.1 (used only in 2d) / 0.4 (2d and 3d) (used for planning in paper)/ 0.6 (only 3d)  with slopes we need high friction otherwise alpha is too high
         #distributed friction coeff
 
         # initial pose
         self.p0 = np.array([0., 0., 0.])
+        #self.p0 = np.array([0., 1., 0.])
         #self.p0 = np.array([15., 2., 0.]) #FOR PAPER for closed loop slope test 3d
         #self.p0 = np.array([0.05, 0.03, 0.01]) #FOR PAPER user_defined_reference
 
         # target used only for matlab trajectory generation (dubins/optimization) #need to run dubins_optimization/ros/ros_node.m
-        self.pf = np.array([2., 2.5, -0.4])
-        self.PLANNING = 'none' # 'none', 'dubins' , 'optim', 'clothoids'
+        #self.pf = np.array([2., 2.5, -0.4])
+        #self.pf = np.array([1, 1, 0])
+        self.pf = np.array([1, 2, 0])
+        #self.pf = np.array([10, 20, 0])
+        self.PLANNING = 'dubins' # 'none', 'dubins' , 'optim', 'clothoids'
         self.PLANNING_SPEED = 0.4
 
         self.GRAVITY_COMPENSATION = False
@@ -100,6 +108,118 @@ class GenericSimulator(BaseController):
             custom_models_path = rospkg.RosPack().get_path('wolf_gazebo_resources') + "/models/"
             os.environ["GAZEBO_MODEL_PATH"] += ":" + custom_models_path
         self.use_ground_truth_contacts = False
+
+
+    #compute rotation matrix needed by Dubins library
+    def rotation_on_sphere(self, p, theta, r_sphere):
+        e_r = p / np.linalg.norm(p)
+
+        x_world = np.array([1.0, 0.0, 0.0])
+        e_t0 = x_world - np.dot(x_world, e_r) * e_r
+
+        e_t0 /= np.linalg.norm(e_t0)
+
+        e_t1 = np.cross(e_r, e_t0)
+
+        e_t = np.cos(theta) * e_t0 + np.sin(theta) * e_t1
+        e_b = np.cross(e_r, e_t)
+
+        R = np.column_stack((e_r*r_sphere, e_t, e_b))
+        return R
+
+    #added a method to compute the reference Dubins on sphere
+    def getDubins(self, long_vel, omega, R_sphere, dt):
+
+        #initial and final pose and orientation in 3D
+        terrain_consistent_pose_init = np.array([self.p0[0], self.p0[1], 0, 0, 0, 0])
+        terrain_consistent_pose_fin = np.array([self.pf[0], self.pf[1], 0, 0, 0, 0])
+
+        # computing the offset in position between center of sphere and reference frame used for position to mesh
+        terrain_offset_pose = np.array([0, 0, 0, 0, 0, 0])
+        offset_position, _, _, _ = p.terrainManager.project_on_mesh(
+            point=terrain_offset_pose[:2], direction=np.array([0., 0., 1.]))
+
+        x_offset = 0 - offset_position[0]
+        y_offset = 0 - offset_position[1]
+        z_offset = R_sphere - offset_position[2]
+
+        p_offset = np.array([x_offset, y_offset, z_offset])
+
+        print('Position offset')
+        print(p_offset)
+        print('\n')
+
+        #retrieving initial position and orientation in 3D relative to mesh
+        start_position, start_roll, start_pitch, start_yaw = p.terrainManager.project_on_mesh(
+            point=terrain_consistent_pose_init[:2], direction=np.array([0., 0., 1.]))
+
+        RF_ini = self.rotation_on_sphere(start_position + p_offset, start_yaw, R_sphere)
+        #w_R_terr = p.math_utils.eul2Rot(np.array([start_roll, start_pitch, start_yaw]))
+        #sphere radius
+        #RF_ini = w_R_terr
+        #RF_ini[:, 0] = R_sphere * RF_ini[:, 0]
+
+        print('Initial position')
+        print(start_position)
+        print('\n')
+        angles = np.array([start_roll, start_pitch, start_yaw])
+        print('Initial roll, pitch, yaw')
+        print(angles)
+        print('\n')
+
+        # retrieving final position and orientation in 3D relative to mesh
+        final_position, final_roll, final_pitch, final_yaw = p.terrainManager.project_on_mesh(
+            point=terrain_consistent_pose_fin[:2], direction=np.array([0., 0., 1.]))
+        RF_fin = self.rotation_on_sphere(final_position + p_offset, final_yaw, R_sphere)
+        #w_R_terr = p.math_utils.eul2Rot(np.array([final_roll, final_pitch, final_yaw]))
+        #RF_fin = w_R_terr
+        #RF_fin[:, 0] = R_sphere * RF_fin[:, 0]
+
+        print('Final position')
+        print(final_position)
+        print('\n')
+        angles = np.array([final_roll, final_pitch, final_yaw])
+        print('Final roll, pitch, yaw')
+        print(angles)
+        print('\n')
+
+        r_turn = long_vel/omega
+
+        print("Initial reference frame")
+        print(RF_ini)
+        print('\n')
+        print("Final reference frame")
+        print(RF_fin)
+        print('\n')
+        #find the optimal path
+        Dubins_type, Dubins_length, Dubins_angles, Dubins_x, Dubins_y, Dubins_z,\
+        Tx, Ty, Tz, possible_path_types, possible_path_params = sphere.optimal_path_sphere(RF_ini, RF_fin, r_turn, R_sphere)
+
+        with open("dubins_output_optimal.txt", "w") as f:
+
+            f.write("des_x_vec:\n")
+            np.savetxt(f, Dubins_x)
+
+            f.write("\ndes_y_vec:\n")
+            np.savetxt(f, Dubins_y)
+
+            f.write("\ndes_z_vec:\n")
+            np.savetxt(f, Dubins_z)
+
+        #get reference x_ref, y_ref, theta_ref, v_ref, omega_ref, time_ref along the optimal path
+        x_coords_path, y_coords_path, z_coords_path, fin_config_path, x_coords_circles, \
+        y_coords_circles, z_coords_circles, Tx_path, Ty_path, Tz_path, v_path, omega_path, time_path, theta_path\
+        = sphere.points_path_delta(RF_ini, r_turn, R_sphere, Dubins_angles, long_vel, omega, dt, Dubins_type)
+
+
+        des_x_vec = x_coords_path - x_offset
+        des_y_vec = y_coords_path - y_offset
+        des_z_vec = z_coords_path - z_offset
+        des_theta_vec = theta_path
+        v_ol = v_path
+        omega_ol = omega_path
+        plan_dt = dt #time_path
+        return des_x_vec, des_y_vec, des_z_vec, des_theta_vec, v_ol, omega_ol, plan_dt
 
     def initVars(self):
         super().initVars()
@@ -250,7 +370,7 @@ class GenericSimulator(BaseController):
         self.decimate_publish = 1
         if self.SIMULATOR == 'gazebo':
             world_name = None #'ramps.world'
-            additional_args = ['spawn_x:=' + str(p.p0[0]),'spawn_y:=' + str(p.p0[1]),'spawn_Y:=' + str(p.p0[2]), 'rviz_conf:=$(find tractor_description)/rviz/conf.rviz']
+            additional_args = ['spawn_x:=' + str(p.p0[0]),'spawn_y:=' + str(p.p0[1]),'spawn_Y:=' + str(p.p0[2]), 'rviz_conf:=$(find tractor_description)/rviz/conf.rviz', 'gui:=false']
             super().startSimulator(world_name=world_name, additional_args=additional_args)
         elif self.SIMULATOR == 'coppelia':
            self.coppeliaManager = CoppeliaManager(self.coppeliaModel, self.USE_GUI)
@@ -309,7 +429,7 @@ class GenericSimulator(BaseController):
 
         if self.TERRAIN and self.SIMULATOR=='distributed3d': #terrain is only available in distributed3d
             from base_controllers.tracked_robot.simulator.terrain_manager import TerrainManager
-            self.terrainManager = TerrainManager(rospkg.RosPack().get_path('tractor_description') + "/meshes/terrain.stl")
+            self.terrainManager = TerrainManager(rospkg.RosPack().get_path('tractor_description') + "/meshes/sphere2.stl")
             self.tracked_vehicle_simulator.setTerrainManager(self.terrainManager)
             if self.IDENT_TYPE=='WHEELS' :
                 from base_controllers.tracked_robot.simulator.terrain_manager import create_ramp_mesh
@@ -404,10 +524,11 @@ class GenericSimulator(BaseController):
 
         self.check_time = ros.Time.now().to_sec()
 
-    def getClothoids(self, long_vel, dt = 0.001):
+    def get\
+                    (self, long_vel, dt = 0.001):
         import Clothoids
         curve = Clothoids.ClothoidCurve("curve")
-        curve.build_G1(self.p0[0], self.p0[1], self.p0[2],self.pf[0], self.pf[1], self.pf[2])
+        curve.build_G1(self.p0[0], self.p0[1], self.p0[2], self.pf[0], self.pf[1], self.pf[2])
         self.PLANNING_DURATION = curve.length() / long_vel
         number_of_samples = int(np.floor(self.PLANNING_DURATION / dt))
         values = np.arange(0, curve.length(), curve.length() / number_of_samples, dtype=np.float64)
@@ -1003,7 +1124,7 @@ class GenericSimulator(BaseController):
             if self.IDENT_TYPE=='WHEELS' and self.SIMULATOR=='distributed3d':
                 self.ros_pub.add_plane(pos=np.array([0,0,-0.]), orient=np.array([0., self.RAMP_INCLINATION, 0]), color="white", alpha=0.5)
             else:
-                self.ros_pub.add_mesh("tractor_description", "/meshes/terrain.stl", position=np.array([0., 0., 0.0]), color="red", alpha=1.0)
+                self.ros_pub.add_mesh("tractor_description", "/meshes/sphere2.stl", position=np.array([0., 0., 0.0]), color="red", alpha=1.0)
 
         if self.SIMULATOR == 'coppelia':
             self.coppeliaManager.simulationControl('trigger_next_step')
@@ -1179,8 +1300,9 @@ def main_loop(p):
         else: #matlab or clothoids
             if p.PLANNING=='clothoids':
                 des_x_vec, des_y_vec,des_theta_vec, v_ol, omega_ol, plan_dt= p.getClothoids(long_vel=0.4, dt = 0.001)
+
             else: #matlab planning
-                des_x_vec, des_y_vec,des_theta_vec, v_ol, omega_ol, plan_dt=  p.getTrajFromMatlab()
+                des_x_vec, des_y_vec,des_theta_vec, v_ol, omega_ol, plan_dt = p.getTrajFromMatlab()
             #
             p.traj = Trajectory(None, des_x_vec, des_y_vec,des_theta_vec, None, DT=plan_dt, v=v_ol, omega=omega_ol)
             traj_length = len(v_ol)
@@ -1260,6 +1382,59 @@ def main_loop(p):
                 # profiler = Profiler(function_name=p.getClothoids)
                 des_x_vec, des_y_vec, des_theta_vec, v_ol, omega_ol, plan_dt = p.getClothoids(long_vel=0.4, dt = 0.001)
                 #print(colored(f"Computation time per Clothoid call: {profiler.get_total_time()} seconds", "red"))
+
+            elif p.PLANNING == 'dubins':
+                des_x_vec, des_y_vec, des_z_vec, des_theta_vec, v_ol, omega_ol, plan_dt = p.getDubins(long_vel=0.3, omega=0.5, R_sphere=200, dt = 0.001)
+
+                # ===== Plot traiettoria Dubins 3D =====
+                fig1 = plt.figure()
+                ax1 = fig1.add_subplot(111, projection='3d')  # 3D plot
+
+                ax1.plot(des_x_vec, des_y_vec, des_z_vec)
+                ax1.set_title("Dubins trajectory 3D")
+                ax1.set_xlabel("x")
+                ax1.set_ylabel("y")
+                ax1.set_zlabel("z")
+                ax1.grid(True)
+
+                plt.show(block=False)
+
+                # ===== Plot v_des e omega_des =====
+                fig2, (ax_v, ax_omega) = plt.subplots(2, 1, sharex=True)
+
+                # Top: v_des (x = indice)
+                ax_v.plot(v_ol)
+                ax_v.set_title("v_des")
+                ax_v.set_ylabel("v")
+                ax_v.grid(True)
+
+                # Bottom: omega_des (x = indice)
+                ax_omega.plot(omega_ol)
+                ax_omega.set_title("omega_des")
+                ax_omega.set_xlabel("index")
+                ax_omega.set_ylabel("omega")
+                ax_omega.grid(True)
+
+                plt.show(block=False)
+
+                with open("dubins_output.txt", "w") as f:
+                    f.write(f"plan_dt = {plan_dt}\n\n")
+
+                    f.write("des_x_vec:\n")
+                    np.savetxt(f, des_x_vec)
+
+                    f.write("\ndes_y_vec:\n")
+                    np.savetxt(f, des_y_vec)
+
+                    f.write("\ndes_theta_vec:\n")
+                    np.savetxt(f, des_theta_vec)
+
+                    f.write("\nv_ol:\n")
+                    np.savetxt(f, v_ol)
+
+                    f.write("\nomega_ol:\n")
+                    np.savetxt(f, omega_ol)
+
             else:  # matlab planning
                 des_x_vec, des_y_vec, des_theta_vec, v_ol, omega_ol, plan_dt = p.getTrajFromMatlab()
             p.traj = Trajectory(None, des_x_vec, des_y_vec, des_theta_vec, None, DT=plan_dt, v=v_ol, omega=omega_ol)

@@ -284,7 +284,7 @@ if __name__ == '__main__':
     point = np.array([22., 0.])
     direction = np.array([0., 0., 1.])
 
-    mesh_path = rospkg.RosPack().get_path('tractor_description') + "/meshes/terrain.stl"
+    mesh_path = rospkg.RosPack().get_path('tractor_description') + "/meshes/sphere2.stl"
     terrainManager = TerrainManager(mesh_path)
 
     # Create the ramp mesh
