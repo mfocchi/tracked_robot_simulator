@@ -72,8 +72,9 @@ class GenericSimulator(BaseController):
         self.IDENT_DIRECTION = 'left'  # used only when IDENT_TYPE = 'V_OMEGA' (deprecated)
 
         # target used only for matlab trajectory generation (dubins/optimization) #need to run dubins_optimization/ros/ros_node.m
-        self.pf = np.array([2., 2.5, -0.4])
-        self.PLANNING = 'none' # 'none', 'dubins' , 'optim', 'clothoids'
+        self.pf = np.array([300*0.02, 200*0.02, np.pi/4])
+        self.PLANNING = 'chomp' # 'none', 'dubins' , 'chomp', 'clothoids'
+        self.PLANNING_DURATION = 20.
         self.PLANNING_SPEED = 0.4
         self.SAVE_BAGS = False
 
@@ -156,6 +157,9 @@ class GenericSimulator(BaseController):
         self.beta_r_control_log = np.empty((conf.robot_params[self.robot_name]['buffer_size'])) * nan
         self.pub_counter = 0
         self.out_of_frequency_counter=0
+        self.des_x_vec = np.empty(1)
+        self.des_y_vec = np.empty(1)
+        self.des_theta_vec = np.empty(1)
 
     def reset_joints(self, q0, joint_names = None):
         # create the message
@@ -336,6 +340,89 @@ class GenericSimulator(BaseController):
         long_v_vec = np.ones((values.size))*long_vel
         return xy[:,0] , xy[:,1], theta, long_v_vec, omega_vec , dt
 
+    def plotChompTraj(self,des_x_vec,des_y_vec):
+        # plot intermediate positions
+        for blob_x, blob_y in zip(des_x_vec, des_y_vec):
+            self.ros_pub.add_marker(np.array([blob_x, blob_y, self.basePoseW[2]]), color="white", radius=0.5)
+
+    def getChomp(self, start, goal):
+        from tracked_robot.planners.chomp_no_theta import ChompSolver, Params
+        ch = ChompSolver()
+        # -------------------------------
+        # 1) Create a map
+        # -------------------------------
+        # obstacles: list of dicts with X, Y in world coordinates
+        obstacles = [{"X": np.array([150, 350, 350, 150]),
+                      "Y": np.array([50, 50, 150, 150])},
+                     {"X": np.array([200, 300, 250]),
+                      "Y": np.array([300, 300, 400])}, ]
+        # map origin
+        xRange = np.array([0.0, 500.0])
+        yRange = np.array([0.0, 500.0])
+        rows = 2000
+        cols = 2000
+        epsilon = 50.0
+        M = ch.constructMap(xRange, yRange, rows, cols, obstacles, epsilon)
+
+        # create metric stl for rviz
+        # your current world extents (in "world units")
+        xL_world = xRange[1] - xRange[0]
+        yL_world = yRange[1] - yRange[0]
+
+        # desired real size in meters
+        xL_m_des = 10.0  # e.g. want the map width to be 50m
+        yL_m_des = 10.0
+
+        # meter to world_unit
+        sx = xL_m_des / xL_world
+        sy = yL_m_des / yL_world
+        import rospkg
+        ch.obstacles_to_stl_scaled(obstacles, rospkg.RosPack().get_path('tractor_description') + '/meshes/obstacles.stl',
+                                   height_m=2.0, sx=sx, sy=sy)
+
+        params = Params(
+            DOF=2,
+            lambda_=200.0,
+            eta=0.001,
+            MAX_ITER=100,
+            TOL=1.0,
+            dT=1.0,
+            t0=0.0,
+            tf=p.PLANNING_DURATION,
+            convex_hull_contact=True,
+        )
+
+        # map from metric to world units (expt for theta)
+        q_start = start.copy()
+        q_start[:2] /=sx
+        q_goal = goal.copy()
+        q_goal[:2] /= sy
+
+        # polygon in base frame (world units)
+        #robot size
+        w = 60.0
+        h = 40.0
+        X = np.array([-w / 2, w / 2, w / 2, -w / 2], dtype=float)
+        Y = np.array([-h / 2, -h / 2, h / 2, h / 2], dtype=float)
+        robot = ch.createRobot(X, Y, q_start, M, params.convex_hull_contact)
+
+        # --------------------------------
+        # 3) Initial straight-line trajectory fro
+        # --------------------------------
+        T = int(params.tf / params.dT)
+        xi0 = np.zeros((T, params.DOF), dtype=float)
+        xi0[:, 0] = np.linspace(q_start[0], q_goal[0], T)
+        xi0[:, 1] = np.linspace(q_start[1], q_goal[1], T)
+
+        optimized_xi = ch.optimize(xi0, M, params, robot)
+
+        # map backl from world units to meters
+        optimized_xi_meters = optimized_xi.copy()
+        optimized_xi_meters[:, 0] *= sx
+        optimized_xi_meters[:, 1] *= sy
+
+        return optimized_xi_meters[:,0] , optimized_xi_meters[:,1], optimized_xi_meters[:,2], np.zeros(optimized_xi_meters.shape[0]), np.zeros(optimized_xi_meters.shape[0]), params.dT
+
     def getTrajFromMatlab(self):
         try:
             print(colored("Calling Matlab service /optim: remember to  set correct  friction_coeff in robot_params.m", "red"))
@@ -365,14 +452,14 @@ class GenericSimulator(BaseController):
 
     def startupProcedure(self):
         if self.SIMULATOR=='distributed3d':
-            self.terrain_consistent_pose_init=np.array([self.p0[0], self.p0[1], 0, 0, 0, 0])
+            self.terrain_consistent_pose_init=np.array([self.p0[0], self.p0[1], 0, 0, 0, 0]).copy()
             if self.TERRAIN: #ramp and mesh
                 start_position, start_roll, start_pitch, start_yaw = p.terrainManager.project_on_mesh(point=self.terrain_consistent_pose_init[:2], direction=np.array([0., 0., 1.]))
                 self.terrain_consistent_pose_init[:3] = start_position.copy()
                 self.terrain_consistent_pose_init[3] = start_roll
                 self.terrain_consistent_pose_init[4] = start_pitch
                 self.terrain_consistent_pose_init[5] = start_yaw
-                self.quaternion_start = pin.Quaternion(pin.rpy.rpyToMatrix(self.terrain_consistent_pose_init[3:]))
+                #self.quaternion_start = pin.Quaternion(pin.rpy.rpyToMatrix(self.terrain_consistent_pose_init[3:]))
 
                 # init com self.vehicle_param.height above ground
                 w_R_terr = p.math_utils.eul2Rot(np.array([start_roll, start_pitch, start_yaw]))
@@ -381,7 +468,7 @@ class GenericSimulator(BaseController):
                 self.terrain_consistent_pose_init[:3] += self.tracked_vehicle_simulator.consider_robot_height * (np.array([0.,0.,1.])* self.tracked_vehicle_simulator.vehicle_param.height)
             self.tracked_vehicle_simulator.initSimulation(pose_init=self.terrain_consistent_pose_init, twist_init=np.zeros(6), ros_pub = self.ros_pub)
             # important, you need to reset also baseState otherwise robot_state the first time will be set to 0,0,0!
-            self.basePoseW = self.terrain_consistent_pose_init.copy()
+            self.basePoseW = np.copy(self.terrain_consistent_pose_init)
         else:
             self.tracked_vehicle_simulator.initSimulation(pose_init=self.p0, vbody_init=np.array([0, 0, 0.0]))
             # important, you need to reset also baseState otherwise robot_state the first time will be set to 0,0,0!
@@ -400,10 +487,10 @@ class GenericSimulator(BaseController):
         if conf.plotting:
             #xy plot
             plt.figure()
-            plt.plot(p.des_state_log[0, :], p.des_state_log[1, :], "-r", label="desired")
-            plt.plot(p.state_log[0, :], p.state_log[1, :], "-b", label="real")
+            plt.plot(p.des_state_log[0, :], p.des_state_log[1, :], "-ro", label="desired")
+            plt.plot(p.state_log[0, :], p.state_log[1, :], "-bo", label="real")
             plt.legend()
-            plt.title(f"Control: {p.ControlType}, Long: {p.LONG_SLIP_COMPENSATION} Side: {p.SIDE_SLIP_COMPENSATION}")
+            plt.title(f"XY plot: {p.ControlType}, Long: {p.LONG_SLIP_COMPENSATION} Side: {p.SIDE_SLIP_COMPENSATION}")
             plt.xlabel("x[m]")
             plt.ylabel("y[m]")
             plt.axis("equal")
@@ -415,7 +502,7 @@ class GenericSimulator(BaseController):
             plt.plot(p.time_log, p.ctrl_v_log, "-b", label="REAL")
             plt.plot(p.time_log, p.v_d_log, "-r", label="desired")
             plt.legend()
-            plt.title("v and omega")
+            plt.title("control commands: v and omega")
             plt.ylabel("linear velocity[m/s]")
             plt.grid(True)
             plt.subplot(2, 1, 2)
@@ -426,25 +513,50 @@ class GenericSimulator(BaseController):
             plt.ylabel("angular velocity[rad/s]")
             plt.grid(True)
 
+            # chomp xy plot
+            if p.PLANNING=="chomp":
+                plt.figure()
+                plt.plot(p.des_state_log[0, :], p.des_state_log[1, :], "-bo", label="interpolated")
+                plt.plot(p.des_x_vec, p.des_y_vec, "-ro", label="planned_low_discr", markersize=10, alpha=0.5)
+                plt.legend()
+                plt.title(f"CHOMP reference: XY plot:")
+                plt.xlabel("x[m]")
+                plt.ylabel("y[m]")
+                plt.axis("equal")
+                plt.grid(True)
+                plt.show()
+                # chomp theta plot
+                plt.figure()
+
+                dT_plan = 1
+                Nsamples_plan = int(p.PLANNING_DURATION / dT_plan)
+                plt.plot(p.time_log, p.des_state_log[2, :], "-bo", label="interpolated")
+                plt.plot(range(Nsamples_plan), p.des_theta_vec, "-ro", label="planned", markersize=10, alpha=0.5)
+                plt.legend()
+                plt.title(f"CHOMP reference: theta plot:")
+                plt.xlabel("time[s]")
+                plt.ylabel("theta[m]")
+                plt.axis("equal")
+                plt.grid(True)
+                plt.show()
+
 
             #plotJoint('position', p.time_log, q_log=p.q_log, q_des_log=p.q_des_log, joint_names=p.joint_names)
             #joint velocities with limits
             fig, axs = plt.subplots(3, 1, sharex=True, figsize=(10, 8))  # Create all 3 subplots at once
-
+            plt.title("wheel commands")
             axs[0].plot(p.time_log, p.qd_log[0, :], "-b", linewidth=3)
             axs[0].plot(p.time_log, p.qd_des_log[0, :], "-r", linewidth=4)
             axs[0].plot(p.time_log, constants.MAXSPEED_RADS_PULLEY * np.ones(len(p.time_log)), "-k", linewidth=4)
             axs[0].plot(p.time_log, -constants.MAXSPEED_RADS_PULLEY * np.ones(len(p.time_log)), "-k", linewidth=4)
             axs[0].set_ylabel("WHEEL_L")
             axs[0].grid(True)
-
             axs[1].plot(p.time_log, p.qd_log[1, :], "-b", linewidth=3)
             axs[1].plot(p.time_log, p.qd_des_log[1, :], "-r", linewidth=4)
             axs[1].plot(p.time_log, constants.MAXSPEED_RADS_PULLEY * np.ones(len(p.time_log)), "-k", linewidth=4)
             axs[1].plot(p.time_log, -constants.MAXSPEED_RADS_PULLEY * np.ones(len(p.time_log)), "-k", linewidth=4)
             axs[1].set_ylabel("WHEEL_R")
             axs[1].grid(True)
-
             axs[2].plot(p.time_log, p.alpha_control_log, "-r", linewidth=4)
             axs[2].set_ylabel("alpha")
             axs[2].grid(True)
@@ -454,7 +566,7 @@ class GenericSimulator(BaseController):
             plt.show()
 
             #states plot
-            if self.SIMULATOR == 'distributed3d': #not the roll and pitch are not meaningful because we are not tracking the yaw of the terrain so they are assosiated to a different yaw
+            if self.SIMULATOR=='distributed3d': #not the roll and pitch are not meaningful because we are not tracking the yaw of the terrain so they are assosiated to a different yaw
                 plotFrame('position', time_log=p.time_log, des_Pose_log=p.basePoseW_des_log, Pose_log=p.basePoseW_log, title='states', frame='W')
             else:
                 plotFrameLinear(name='position',time_log=p.time_log,des_Pose_log = p.des_state_log, Pose_log=p.state_log, custom_labels=(["X","Y","THETA"]))
@@ -500,7 +612,7 @@ class GenericSimulator(BaseController):
                 p.log_e_x, p.log_e_y, p.log_e_theta = p.controller.getErrors()
                 plt.figure()
                 plt.subplot(2, 1, 1)
-                plt.plot(np.sqrt(np.power(self.log_e_x,2) +np.power(self.log_e_y,2)), "-b")
+                plt.plot(np.sqrt(np.power(self.log_e_x,2) + np.power(self.log_e_y,2)), "-b")
                 plt.ylabel("exy")
                 plt.title("tracking errors")
                 plt.grid(True)
@@ -508,7 +620,6 @@ class GenericSimulator(BaseController):
                 plt.plot(self.log_e_theta, "-b")
                 plt.ylabel("eth")
                 plt.grid(True)
-
                 #
                 # # liapunov V
                 # plt.figure()
@@ -808,6 +919,7 @@ class GenericSimulator(BaseController):
                 self.ros_pub.add_plane(pos=np.array([0,0,-0.]), orient=np.array([0., self.RAMP_INCLINATION, 0]), color="white", alpha=0.5)
             else:
                 self.ros_pub.add_mesh("tractor_description", "/meshes/terrain.stl", position=np.array([0., 0., 0.0]), color="red", alpha=1.0)
+                self.ros_pub.add_mesh("tractor_description", '/meshes/obstacles.stl', position=np.array([0., 0., 0.0]), color="blue", alpha=1.0)
 
         if np.mod(self.time,1) == 0:
             print(colored(f"TIME: {self.time}","red"))
@@ -860,6 +972,7 @@ def main_loop(p):
     p.q_old = np.zeros(2)
     p.initSubscribers()
     p.startupProcedure()
+
     #init joints
     p.q_des = np.copy(p.q_des_q0)
     p.q_old = np.zeros(2)
@@ -905,11 +1018,15 @@ def main_loop(p):
             p.traj = Trajectory(ModelsList.UNICYCLE, p.des_x, p.des_y, p.des_theta, DT=conf.robot_params[p.robot_name]['dt'], v=v_ol, omega=omega_ol)
         else: #matlab or clothoids
             if p.PLANNING=='clothoids':
-                des_x_vec, des_y_vec,des_theta_vec, v_ol, omega_ol, plan_dt= p.getClothoids(long_vel=0.4, dt = 0.001)
-            else: #matlab planning
-                des_x_vec, des_y_vec,des_theta_vec, v_ol, omega_ol, plan_dt=  p.getTrajFromMatlab()
-            #
-            p.traj = Trajectory(None, des_x_vec, des_y_vec,des_theta_vec, None, DT=plan_dt, v=v_ol, omega=omega_ol)
+                p.des_x_vec, p.des_y_vec,p.des_theta_vec, v_ol, omega_ol, p.plan_dt= p.getClothoids(long_vel=0.4, dt = 0.001)
+            elif p.PLANNING=='chomp':
+                p.des_x_vec, p.des_y_vec,p.des_theta_vec, v_ol, omega_ol, p.plan_dt=  p.getChomp(p.p0,p.pf)
+                p.plotChompTraj(p.des_x_vec, p.des_y_vec)
+            elif p.PLANNING == 'matlab':
+                p.des_x_vec, p.des_y_vec,p.des_theta_vec, v_ol, omega_ol, p.plan_dt=  p.getTrajFromMatlab()
+            else:
+                pass
+            p.traj = Trajectory(None, p.des_x_vec, p.des_y_vec,p.des_theta_vec, None, DT=p.plan_dt, v=v_ol, omega=omega_ol)
             traj_length = len(v_ol)
 
         while not ros.is_shutdown():
@@ -969,14 +1086,18 @@ def main_loop(p):
             p.traj = Trajectory(ModelsList.UNICYCLE, start_x=p.des_x, start_y=p.des_y, start_theta=p.des_theta, DT=conf.robot_params[p.robot_name]['dt'],
                                 v=v_ol, omega=omega_ol, v_dot=v_dot_ol, omega_dot=omega_dot_ol)
         else:
+
             if p.PLANNING == 'clothoids':
-                # from base_controllers.utils.profiler import Profiler
-                # profiler = Profiler(function_name=p.getClothoids)
-                des_x_vec, des_y_vec, des_theta_vec, v_ol, omega_ol, plan_dt = p.getClothoids(long_vel=0.4, dt = conf.robot_params[p.robot_name]['dt'])
-                #print(colored(f"Computation time per Clothoid call: {profiler.get_total_time()} seconds", "red"))
-            else:  # matlab planning
-                des_x_vec, des_y_vec, des_theta_vec, v_ol, omega_ol, plan_dt = p.getTrajFromMatlab()
-            p.traj = Trajectory(None, des_x_vec, des_y_vec, des_theta_vec, None, DT=plan_dt, v=v_ol, omega=omega_ol)
+                p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt = p.getClothoids(long_vel=0.4, dt=conf.robot_params[p.robot_name]['dt'])
+            elif p.PLANNING == 'chomp':
+                p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt = p.getChomp(p.p0,p.pf)
+                p.plotChompTraj(p.des_x_vec, p.des_y_vec)
+            elif p.PLANNING == 'matlab':
+                p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt = p.getTrajFromMatlab()
+            else:
+                pass
+
+            p.traj = Trajectory(None, start_x=p.des_x_vec, start_y=p.des_y_vec, start_theta=p.des_theta_vec, velocity_generator=None, DT=p.plan_dt, v=v_ol, omega=omega_ol)
 
         # Lyapunov controller parameters
         params = LyapunovParams(K_P=10., K_THETA=1., DT=conf.robot_params[p.robot_name]['dt'], ESTIMATE_ALPHA_WITH_ACTUAL_VALUES=p.ESTIMATE_ALPHA_WITH_ACTUAL_VALUES) #high gains 15 5 / low gains 10 1 (default)
@@ -985,6 +1106,7 @@ def main_loop(p):
         p.controller.setSlippageInferenceType(p.SLIPPAGE_INFERENCE_TYPE)
         p.traj.set_initial_time(start_time=p.time)
         while not ros.is_shutdown():
+
             # update kinematics
             if p.SIMULATOR == 'distributed3d':
                 robot_state.x = p.basePoseW[p.u.sp_crd["LX"]]
@@ -1001,6 +1123,7 @@ def main_loop(p):
 
             # get reference from trajectory
             p.des_x, p.des_y, p.des_theta, p.v_d, p.omega_d, p.v_dot_d, p.omega_dot_d, traj_finished = p.traj.evalTraj(p.time)
+
             if traj_finished:
                 break
 
