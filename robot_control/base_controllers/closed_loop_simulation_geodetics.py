@@ -78,6 +78,8 @@ class GenericSimulator(BaseController):
         self.PLANNING_SPEED = 0.4
         self.SAVE_BAGS = False
 
+        self.OBSTACLES = True
+
         self.flag3D = ''
         self.use_ground_truth_contacts = False
 
@@ -352,10 +354,13 @@ class GenericSimulator(BaseController):
         # 1) Create a map
         # -------------------------------
         # obstacles: list of dicts with X, Y in world coordinates
-        obstacles = [{"X": np.array([150, 350, 350, 150]),
-                      "Y": np.array([50, 50, 150, 150])},
-                     {"X": np.array([200, 300, 250]),
-                      "Y": np.array([300, 300, 400])}, ]
+        if self.OBSTACLES:
+            obstacles = [{"X": np.array([150, 350, 350, 150]),
+                          "Y": np.array([50, 50, 150, 150])},
+                         {"X": np.array([200, 300, 250]),
+                          "Y": np.array([300, 300, 400])}, ]
+        else:
+            obstacles = []
         # map origin
         xRange = np.array([0.0, 500.0])
         yRange = np.array([0.0, 500.0])
@@ -376,9 +381,10 @@ class GenericSimulator(BaseController):
         # meter to world_unit
         sx = xL_m_des / xL_world
         sy = yL_m_des / yL_world
-        import rospkg
-        ch.obstacles_to_stl_scaled(obstacles, rospkg.RosPack().get_path('tractor_description') + '/meshes/obstacles.stl',
-                                   height_m=2.0, sx=sx, sy=sy)
+        if self.OBSTACLES:
+            import rospkg
+            ch.obstacles_to_stl_scaled(obstacles, rospkg.RosPack().get_path('tractor_description') + '/meshes/obstacles.stl',
+                                       height_m=2.0, sx=sx, sy=sy)
 
         params = Params(
             DOF=2,
@@ -919,7 +925,8 @@ class GenericSimulator(BaseController):
                 self.ros_pub.add_plane(pos=np.array([0,0,-0.]), orient=np.array([0., self.RAMP_INCLINATION, 0]), color="white", alpha=0.5)
             else:
                 self.ros_pub.add_mesh("tractor_description", "/meshes/terrain.stl", position=np.array([0., 0., 0.0]), color="red", alpha=1.0)
-                self.ros_pub.add_mesh("tractor_description", '/meshes/obstacles.stl', position=np.array([0., 0., 0.0]), color="blue", alpha=1.0)
+                if self.OBSTACLES:
+                    self.ros_pub.add_mesh("tractor_description", '/meshes/obstacles.stl', position=np.array([0., 0., 0.0]), color="blue", alpha=1.0)
 
         if np.mod(self.time,1) == 0:
             print(colored(f"TIME: {self.time}","red"))
