@@ -189,7 +189,6 @@ class GenericSimulator(BaseController):
         y_coords_circles, z_coords_circles, Tx_path, Ty_path, Tz_path, v_path, omega_path, time_path, theta_path\
         = sphere.points_path_delta(RF_ini, r_turn, R_sphere, Dubins_angles, long_vel, omega, dt, Dubins_type)
 
-
         des_x_vec = x_coords_path - x_offset
         des_y_vec = y_coords_path - y_offset
         des_z_vec = z_coords_path - z_offset
@@ -681,6 +680,7 @@ class GenericSimulator(BaseController):
         x_des_world = p.des_x_vec/sx
         y_des_world = p.des_y_vec/sy
 
+
         xi0 = np.column_stack((x_des_world, y_des_world))
 
         optimized_xi = ch.optimize(xi0, M, params, robot)
@@ -802,9 +802,8 @@ class GenericSimulator(BaseController):
                 plt.figure()
 
                 dT_plan = 1
-                Nsamples_plan = int(p.PLANNING_DURATION / dT_plan)
                 plt.plot(p.time_log, p.des_state_log[2, :], "-bo", label="interpolated")
-                plt.plot(range(Nsamples_plan), p.des_theta_vec, "-ro", label="planned", markersize=10, alpha=0.5)
+                plt.plot(range(len(p.des_theta_vec)), p.des_theta_vec, "-ro", label="planned", markersize=10, alpha=0.5)
                 plt.legend()
                 plt.title(f"CHOMP reference: theta plot:")
                 plt.xlabel("time[s]")
@@ -1293,9 +1292,9 @@ def main_loop(p):
             if p.PLANNING=='clothoids':
                 p.des_x_vec, p.des_y_vec,p.des_theta_vec, v_ol, omega_ol, p.plan_dt= p.getClothoids(long_vel=0.4, dt = 0.001)
             elif p.PLANNING=='chomp':
-                #p.des_x_vec, p.des_y_vec,p.des_theta_vec, v_ol, omega_ol, p.plan_dt=  p.getChomp(p.p0,p.pf)
-                p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt =\
-                    p.getChomp_Dubins(p.p0, p.pf, long_vel=0.3, omega=0.5, R_sphere=200)
+                p.des_x_vec, p.des_y_vec,p.des_theta_vec, v_ol, omega_ol, p.plan_dt=  p.getChomp(p.p0,p.pf)
+                # p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt =\
+                #     p.getChomp_Dubins(p.p0, p.pf, long_vel=0.3, omega=0.5, R_sphere=200)
                 p.plotChompTraj(p.des_x_vec, p.des_y_vec)
             elif p.PLANNING == 'matlab':
                 p.des_x_vec, p.des_y_vec,p.des_theta_vec, v_ol, omega_ol, p.plan_dt=  p.getTrajFromMatlab()
@@ -1371,7 +1370,7 @@ def main_loop(p):
             elif p.PLANNING == 'chomp':
                 #p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt = p.getChomp(p.p0,p.pf)
                 p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt =\
-                    p.getChomp_Dubins(p.p0, p.pf, long_vel=0.3, omega=0.5, R_sphere=200)
+                     p.getChomp_Dubins(p.p0, p.pf, long_vel=0.3, omega=0.5, R_sphere=200)
                 p.plotChompTraj(p.des_x_vec, p.des_y_vec)
                 print('Number of elements in x_des:')
                 print(p.des_x_vec.shape)
