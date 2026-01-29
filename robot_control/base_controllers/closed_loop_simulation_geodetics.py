@@ -635,7 +635,8 @@ class GenericSimulator(BaseController):
         sx = xL_m_des / xL_world
         sy = yL_m_des / yL_world
         import rospkg
-        ch.obstacles_to_stl_scaled(obstacles, rospkg.RosPack().get_path('tractor_description') + '/meshes/obstacles.stl',
+        if self.OBSTACLES:
+            ch.obstacles_to_stl_scaled(obstacles, rospkg.RosPack().get_path('tractor_description') + '/meshes/obstacles.stl',
                                    height_m=2.0, sx=sx, sy=sy)
 
         params = Params(
@@ -690,7 +691,7 @@ class GenericSimulator(BaseController):
         optimized_xi_meters[:, 1] *= sy
 
         #return optimized_xi_meters[:,0] , optimized_xi_meters[:,1], optimized_xi_meters[:,2], np.zeros(optimized_xi_meters.shape[0]), np.zeros(optimized_xi_meters.shape[0]), params.dT
-        return optimized_xi_meters[:, 0], optimized_xi_meters[:, 1], optimized_xi_meters[:, 2], v_ol, omega_ol, params.dT
+        return optimized_xi_meters[:, 0], optimized_xi_meters[:, 1], optimized_xi_meters[:, 2], np.zeros(optimized_xi_meters.shape[0]), np.zeros(optimized_xi_meters.shape[0]), params.dT
 
 
 
@@ -1372,6 +1373,13 @@ def main_loop(p):
                 p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt =\
                     p.getChomp_Dubins(p.p0, p.pf, long_vel=0.3, omega=0.5, R_sphere=200)
                 p.plotChompTraj(p.des_x_vec, p.des_y_vec)
+                print('Number of elements in x_des:')
+                print(p.des_x_vec.shape)
+                print('Number of elements in y_des:')
+                print(p.des_y_vec.shape)
+                print('Number of elements in theta_des:')
+                print(p.des_theta_vec.shape)
+                print('\n')
             elif p.PLANNING == 'matlab':
                 p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt = p.getTrajFromMatlab()
             elif p.PLANNING == 'dubins':
