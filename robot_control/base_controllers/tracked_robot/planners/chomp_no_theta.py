@@ -946,3 +946,24 @@ if __name__ == "__main__":
     optimized_xi_meters = optimized_xi.copy()
     optimized_xi_meters[:, 0] *= sx
     optimized_xi_meters[:, 1] *= sy
+
+    dx = np.diff(optimized_xi_meters[:, 0])
+    dy = np.diff(optimized_xi_meters[:, 1])
+    dtheta = np.diff(np.unwrap(optimized_xi_meters[:, 2]))
+    v = np.hypot(dx, dy)/ params.dT
+    omega = dtheta/ params.dT
+
+    plt.figure()
+    plt.plot(v, "bo-", linewidth=2, markersize=2, label="long")
+    plt.ylim([-1,1])
+    plt.grid(True)
+    plt.ylabel("v")
+
+    plt.figure()
+    plt.plot(omega, "ro-", linewidth=1, markersize=1, label="omega")
+    plt.ylabel("omega")
+    plt.ylim([-1, 1])
+    plt.grid(True)
+    plt.axis("equal")
+    plt.show()
+
