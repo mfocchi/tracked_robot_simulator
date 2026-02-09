@@ -59,7 +59,7 @@
 
     <model name="tree_1">
       <static>true</static>
-      <pose>5 5 1 0 0 0</pose>
+      <pose>2 2 1 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry>
@@ -84,7 +84,7 @@
 
     <model name="tree_2">
       <static>true</static>
-      <pose>-5 0 1 0 0 0</pose>
+      <pose>-2 0 1 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry>
@@ -109,7 +109,7 @@
 
     <model name="tree_3">
       <static>true</static>
-      <pose>5 -5 1 0 0 0</pose>
+      <pose>2 -2 1 0 0 0</pose>
       <link name="link">
         <visual name="visual">
           <geometry>

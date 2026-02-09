@@ -115,6 +115,44 @@ class VelocityGenerator:
         s = "mir_smooth"
         return v, o, v_dot, omega_dot, s
 
+
+    # velocity profile for slam trajectory
+
+    def velocity_slam(self, t1_perc = 0.03, t2_perc = 0.08, v_max_ = 0.1, omega_max_ = 0.3):
+        t = np.linspace(0., self.DT * self.n_samples, self.n_samples)
+        v = []
+        o = []
+        v_dot = []
+        omega_dot = []
+        t1 = t1_perc * self.simulation_time
+        t2 = t2_perc * self.simulation_time
+        omega_max = omega_max_
+        v_max = v_max_
+        for i in range(t.shape[0]):
+
+            if (t[i] < t1):
+                v.append(v_max)
+                o.append(0)
+                v_dot.append(v_max / t1)
+                omega_dot.append(0)
+
+            elif (t[i] < t2):
+                v.append(v_max)
+                o.append(omega_max)
+                v_dot.append(v_max / (t - t1))
+                omega_dot.append(omega_max / (t - t1))
+
+            else:
+                v.append(v_max)
+                #o.append(0)
+                o.append(omega_max/2.5)
+                v_dot.append(0)
+                omega_dot.append(0)
+            
+
+        s = "slam"
+        return v, o, v_dot, omega_dot, s
+
     # def velocity_chicane(self):
     #     t = np.linspace(0., self.DT * self.n_samples, self.n_samples)
     #     v = []

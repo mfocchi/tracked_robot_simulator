@@ -39,13 +39,23 @@ from base_controllers.open_loop_simulation2d import TrackedVehicleSimulator, Gro
 from base_controllers.open_loop_simulation3d import  TrackedVehicleSimulator3D, Ground3D
 from base_controllers.utils.common_functions import getRobotModelFloating
 from base_controllers.utils.common_functions import checkRosMaster
+###
 from base_controllers.utils.common_functions import spawnModel, launchFileNode
-
+from base_controllers.utils.common_functions import spawnModel, launchFileNode, launchFileGeneric
+###
 import pandas as pd
 from gazebo_msgs.msg import ModelState
 from gazebo_msgs.srv import SetModelState
 from gazebo_msgs.srv import SetModelStateRequest
 from rosgraph_msgs.msg import Clock
+
+from sensor_msgs.msg import LaserScan
+from slam.utilities.FilterAndPolar2xy_LidarData import filterAndPolar2XY_LidarData
+from sklearn.cluster import DBSCAN
+from visualization_msgs.msg import Marker, MarkerArray
+import tf
+from geometry_msgs.msg import PointStamped
+from scipy.optimize import linear_sum_assignment
 
 robotName = "tractor" # needs to inherit BaseController
 
@@ -57,7 +67,7 @@ class GenericSimulator(BaseController):
         print("Initialized tractor controller---------------------------------------------------------------")
         self.SIMULATOR = 'gazebo'#, 'gazebo(unicycle)', 'coppelia'(deprecated), 'distributed2d'(2d) 'distributed3d'
         self.NAVIGATION = 'none'  # 'none', '2d' , '3d'
-        self.TERRAIN = True #True: Slopes False: Flat terrain
+        self.TERRAIN = False #True: Slopes False: Flat terrain
 
         self.STATISTICAL_ANALYSIS = False #samples targets and orientations in a given space around the robot and compute average tracking error
         self.ControlType = 'CLOSED_LOOP_UNICYCLE' #'OPEN_LOOP' 'CLOSED_LOOP_UNICYCLE' 'CLOSED_LOOP_SLIP_0' 'CLOSED_LOOP_SLIP'
@@ -74,8 +84,15 @@ class GenericSimulator(BaseController):
         self.friction_coefficient = 0.1 # 0.1 (used only in 2d) / 0.4 (2d and 3d) (used for planning in paper)/ 0.6 (only 3d)  with slopes we need high friction otherwise alpha is too high
         #distributed friction coeff
 
+        # trilateration flag
+        self.trilateration = True
+
         # initial pose
-        self.p0 = np.array([0., 0., 0.])
+
+        # MY INITIAL POSE
+        self.p0 = np.array([0.0, 0.0, 0.0])
+
+        #self.p0 = np.array([0., 0., 0.])
         #self.p0 = np.array([15., 2., 0.]) #FOR PAPER for closed loop slope test 3d
         #self.p0 = np.array([0.05, 0.03, 0.01]) #FOR PAPER user_defined_reference
 
@@ -187,6 +204,23 @@ class GenericSimulator(BaseController):
         self.beta_r_control_log = np.empty((conf.robot_params[self.robot_name]['buffer_size'])) * nan
         self.pub_counter = 0
         self.out_of_frequency_counter=0
+
+        self.tf_listener = tf.TransformListener()
+        self.map_colors = [
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, 0.0, 1.0)]
+        self.landmarks = []
+        self.landmark_ids = []
+        self.max_assoc_dist = 1.0
+        self.last_trilat = np.array([0.0, 0.0])
+        self.trilat_initialized = False
+        sigma_r = 0.05
+        self.R_scalar = sigma_r * sigma_r
+        self.trilateration = True
+
+
+
     def reset_joints(self, q0, joint_names = None):
         # create the message
         req_reset_joints = SetModelConfigurationRequest()
@@ -308,6 +342,9 @@ class GenericSimulator(BaseController):
 
         #self.clock_pub = ros.Publisher('/clock', Clock, queue_size=10)
 
+        if self.trilateration:
+            self.lidar_subs = ros.Subscriber("/scan", LaserScan, self.Localization)
+            self.pillar_marker_pub = ros.Publisher("/pillar_markers", MarkerArray, queue_size=1)
 
         if self.TERRAIN and self.SIMULATOR=='distributed3d': #terrain is only available in distributed3d
             from base_controllers.tracked_robot.simulator.terrain_manager import TerrainManager
@@ -1079,9 +1116,269 @@ class GenericSimulator(BaseController):
         phi_sample = self.phi.pop(0)
         return np.array([xy_sample[0], xy_sample[1], phi_sample])
 
+    def euclidean_distance(self, p1, p2):
+        dx = p1[0] - p2[0]
+        dy = p1[1] - p2[1]
+        return math.sqrt(dx * dx + dy * dy)
+
+
+    def Localization(self, lidar_msg):
+
+        if not self.trilateration:
+            return
+
+        # =============================================================
+        # Data processing: finite readings and conversion to cartesian
+        # =============================================================
+        pointsXY = filterAndPolar2XY_LidarData(lidar_msg)
+        if pointsXY.shape[0] == 0:
+            print("No hit points")
+            return
+
+        # =======================================================
+        # Clustering with DBSCAN
+        # =======================================================
+        db = DBSCAN(eps=0.2, min_samples=3).fit(pointsXY)
+        labels = db.labels_
+        labels_set = set(labels)
+
+        # ========================================================
+        # Circle fitting (least square): get pillar center
+        # Model: 2*a*x + 2*b*y + c = x^2 + y^2
+        # ========================================================
+
+        cluster_centers = []
+
+        for l in labels_set:
+            if l == -1:
+                continue
+
+            cluster = []
+            for i in range(pointsXY.shape[0]):
+                if labels[i] == l:
+                    cluster.append(pointsXY[i])
+            cluster = np.array(cluster)
+
+            if cluster.shape[0] < 3: # minimum points in DBSCAN is 3
+                print("Discarded: not enough hit points")
+                continue
+
+
+            A = []
+            b = []
+            for k in range(cluster.shape[0]):
+                xk = cluster[k, 0]
+                yk = cluster[k, 1]
+                A.append([2.0 * xk, 2.0 * yk, 1.0])
+                b.append(xk * xk + yk * yk)
+
+            A = np.array(A)
+            b = np.array(b)
+            try:
+                p = np.linalg.solve(A.T @ A, A.T @ b)
+            except np.linalg.LinAlgError:
+                continue
+
+            # Cluster center coordinates
+            cx = p[0]
+            cy = p[1]
+            cluster_centers.append(np.array([cx, cy]))
+
+        if len(cluster_centers) == 0:
+            print("No center found")
+            return
+
+
+        # ============================================
+        # Transform from lidar frame in map frame
+        # ==========================================
+
+        cluster_centers_map = []
+
+        for c in cluster_centers:
+            ps = PointStamped()
+            ps.header.frame_id = lidar_msg.header.frame_id
+            ps.header.stamp = lidar_msg.header.stamp
+            ps.point.x = c[0]
+            ps.point.y = c[1]
+            ps.point.z = 0.0
+            try:
+                ps_map = self.tf_listener.transformPoint("map", ps)
+                cluster_centers_map.append(np.array([ps_map.point.x, ps_map.point.y]))
+            except:
+                continue
+
+        if len(cluster_centers_map) == 0:
+            print("No center in map found")
+            return
+
+        # =========================================
+        # Data association - Hungarian algorithm
+        # =========================================
+        if len(self.landmarks) == 0:
+            for i in range(len(cluster_centers_map)):
+                self.landmarks.append(cluster_centers_map[i])
+                self.landmark_ids.append(i)
+            return
+
+        n_lm = len(self.landmarks)
+        n_obs = len(cluster_centers_map)
+
+        cost = np.zeros((n_lm, n_obs))
+
+        for i in range(n_lm):
+            for j in range(n_obs):
+                dx = self.landmarks[i][0] - cluster_centers_map[j][0]
+                dy = self.landmarks[i][1] - cluster_centers_map[j][1]
+                cost[i, j] = np.sqrt(dx * dx + dy * dy)
+
+        row, col = linear_sum_assignment(cost)
+
+        associations = [-1] * n_obs
+        for k in range(len(row)):
+            if cost[row[k], col[k]] < self.max_assoc_dist:
+                associations[col[k]] = row[k]
+
+        for j in range(n_obs):
+            i = associations[j]
+            if i == -1:
+                self.landmarks.append(cluster_centers_map[j])
+                self.landmark_ids.append(len(self.landmark_ids))
+            else:
+                self.landmarks[i] = cluster_centers_map[j]
+
+        # ======================================================
+        # Trilateration (Weighted least square)
+        # ======================================================
+
+
+        num_pillars = len(self.landmarks)
+        if num_pillars < 2:
+            print("Less than 2 pillars detected")
+            return
+
+        ranges = []
+        used_landmarks = []
+
+        for i in range(num_pillars):
+
+            found = False
+            for j in range(len(cluster_centers_map)):
+                if associations[j] == i:
+                    xl = cluster_centers[j][0]
+                    yl = cluster_centers[j][1]
+                    r = np.sqrt(xl * xl + yl * yl)
+                    ranges.append(r)
+                    used_landmarks.append(i)
+                    #print(f"Distance lidar <-> pillar{i} = {r:.3f} m")
+                    found = True
+                    break
+            if not found:
+                continue
+
+        if len(ranges) < 2:
+            return
+
+        if not self.trilat_initialized:
+            x = np.array([0.0, 0.0])
+            self.trilat_initialized = True
+        else:
+            x = np.array(self.last_trilat)
+
+        H = []
+        z = []
+
+        for k in range(len(ranges)):
+
+            i = used_landmarks[k]
+            Xi = self.landmarks[i][0]
+            Yi = self.landmarks[i][1]
+
+            dx = x[0] - Xi
+            dy = x[1] - Yi
+            dist_pred = np.sqrt(dx * dx + dy * dy)
+
+            #if dist_pred < 1e-6:
+                #continue
+
+            H.append([dx / dist_pred, dy / dist_pred])
+            z.append(ranges[k] - dist_pred)
+
+        H = np.array(H)
+        z = np.array(z)
+
+        W = np.eye(len(z)) / self.R_scalar
+
+        try:
+            dx = np.linalg.solve(H.T @ W @ H, H.T @ W @ z)
+        except np.linalg.LinAlgError:
+            print("Singular matrix")
+            return
+
+
+        x_new = x + dx
+        self.last_trilat = [x_new[0], x_new[1]]
+
+        """
+        # sigma  0.008 is lidar uncertainty. other uncertainties introduced by dbscan and fitting
+        # error between ground truth and posebase is hovering around 10 cm
+        # sigma choose = 0.05
+        
+        
+        try:
+            gt_pos = np.array([self.basePoseW[0], self.basePoseW[1]])
+            pos_error = np.linalg.norm(x_new - gt_pos)
+
+
+            print(f"Error vs Ground Truth: {pos_error:.4f} m")
+
+        except Exception as e:
+            print(f"Error {e}")
+        """
+
+
+        P = np.linalg.inv(H.T @ W @ H)
+        var = P[0, 0] + P[1, 1]
+
+        print(f"Trilateration result: x={x_new[0]:.3f}, y={x_new[1]:.3f}, var={var:.3f}")
+
+        # ==================================================================================
+        # Visual debug: Marker in Rviz for trilateration result (it matches lidar position)
+        # ==================================================================================
+
+        m = Marker()
+        m.header.frame_id = "map"
+        m.header.stamp = ros.Time.now()
+        m.ns = "trilat_pose"
+        m.id = 0
+        m.type = Marker.CYLINDER
+        m.action = Marker.ADD
+        m.pose.position.x = x_new[0]
+        m.pose.position.y = x_new[1]
+        m.pose.position.z = 0.1
+        m.pose.orientation.w = 1.0
+        m.scale.x = 0.1
+        m.scale.y = 0.1
+        m.scale.z = 0.5
+        m.color.r = 0.0
+        m.color.g = 0.0
+        m.color.b = 0.0
+        m.color.a = 1.0
+
+        ma = MarkerArray()
+        ma.markers.append(m)
+        self.pillar_marker_pub.publish(ma)
+
+
 def talker(p):
     p.start()
     p.startSimulator()
+
+    #it has always to run since working in 2D and lidar_points is PointCloud2 msg    directory_path = os.path.dirname(os.path.abspath(__file__))
+    laserscan_launch_file = os.path.join(directory_path, 'slam', 'launch', 'pointcloud_to_laserscan.launch')
+    launchFileGeneric(laserscan_launch_file)
+    ros.sleep(1.0)
+
 
     if p.ControlType == "OPEN_LOOP" and p.IDENT_TYPE == 'WHEELS':
         wheel_l = np.linspace(-p.IDENT_MAX_WHEEL_SPEED, p.IDENT_MAX_WHEEL_SPEED, 32)
@@ -1128,6 +1425,14 @@ def talker(p):
 def main_loop(p):
     p.loadModelAndPublishers()
     p.u.putIntoGlobalParamServer("use_sim_time", True)
+
+    if p.trilateration:
+        p.broadcast_world = False
+        directory_path = os.path.dirname(os.path.abspath(__file__))
+        slam_launch_file = os.path.join(directory_path, 'slam', 'launch', 'cartographer_launch.launch')
+        launchFileGeneric(slam_launch_file)
+
+
     p.robot.na = 2 #initialize properly vars for only 2 actuators (other 2 are caster wheels)
     p.initVars()
     p.q_old = np.zeros(2)
@@ -1138,7 +1443,6 @@ def main_loop(p):
     p.q_old = np.zeros(2)
     robot_state = Robot()
     ros.sleep(1.)
-    #
     p.q_des = np.zeros(2)
     p.qd_des = np.zeros(2)
     p.tau_ffwd = np.zeros(2)
@@ -1234,7 +1538,7 @@ def main_loop(p):
 
         # CLOSE loop control
         # generate reference trajectory
-        vel_gen = VelocityGenerator(simulation_time=40.,    DT=conf.robot_params[p.robot_name]['dt'])
+        vel_gen = VelocityGenerator(simulation_time=240.,    DT=conf.robot_params[p.robot_name]['dt'])
         if p.PLANNING == 'none':
             if p.SIMULATOR=='distributed3d':
                 p.des_x = p.terrain_consistent_pose_init[0]  # +0.1
@@ -1250,10 +1554,20 @@ def main_loop(p):
                 # p.des_theta = 0
             if p.friction_coefficient == 0.1:
                 v_ol, omega_ol, v_dot_ol, omega_dot_ol, _ = vel_gen.velocity_mir_smooth(v_max_=0.2, omega_max_=0.3)
+
+            #if p.friction_coefficient == 0.4:
+            #    v_ol, omega_ol, v_dot_ol, omega_dot_ol, _ = vel_gen.velocity_mir_smooth(v_max_=0.4, omega_max_=0.2)
+
             if p.friction_coefficient == 0.4:
-                v_ol, omega_ol, v_dot_ol, omega_dot_ol, _ = vel_gen.velocity_mir_smooth(v_max_=0.4, omega_max_=0.2)
+                if p.trilateration:
+                    v_ol, omega_ol, v_dot_ol, omega_dot_ol, _ = vel_gen.velocity_slam(v_max_=0.4, omega_max_=0.2)
+                else:
+                    v_ol, omega_ol, v_dot_ol, omega_dot_ol, _ = vel_gen.velocity_mir_smooth(v_max_=0.4, omega_max_=0.2)
+
+
             if p.friction_coefficient == 0.6:
                 v_ol, omega_ol, v_dot_ol, omega_dot_ol, _ = vel_gen.velocity_mir_smooth(v_max_=0.6, omega_max_=0.4)
+
             p.traj = Trajectory(ModelsList.UNICYCLE, start_x=p.des_x, start_y=p.des_y, start_theta=p.des_theta, DT=conf.robot_params[p.robot_name]['dt'],
                                 v=v_ol, omega=omega_ol, v_dot=v_dot_ol, omega_dot=omega_dot_ol)
         else:
@@ -1264,6 +1578,7 @@ def main_loop(p):
                 #print(colored(f"Computation time per Clothoid call: {profiler.get_total_time()} seconds", "red"))
             else:  # matlab planning
                 des_x_vec, des_y_vec, des_theta_vec, v_ol, omega_ol, plan_dt = p.getTrajFromMatlab()
+
             p.traj = Trajectory(None, des_x_vec, des_y_vec, des_theta_vec, None, DT=plan_dt, v=v_ol, omega=omega_ol)
 
         # Lyapunov controller parameters
@@ -1272,7 +1587,11 @@ def main_loop(p):
         p.controller.setSideSlipCompensationType(p.SIDE_SLIP_COMPENSATION)
         p.controller.setSlippageInferenceType(p.SLIPPAGE_INFERENCE_TYPE)
         p.traj.set_initial_time(start_time=p.time)
+
+        # MAIN LOOP HERE
+
         while not ros.is_shutdown():
+
             # update kinematics
             if p.SIMULATOR == 'distributed3d':
                 robot_state.x = p.basePoseW[p.u.sp_crd["LX"]]
