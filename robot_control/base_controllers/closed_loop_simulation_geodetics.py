@@ -6,6 +6,9 @@ Created on Fri Nov  2 16:52:08 2018
 """
 
 from __future__ import print_function
+
+import math
+
 import rospy as ros
 from base_controllers.utils.math_tools import *
 np.set_printoptions(threshold=np.inf, precision = 5, linewidth = 1000, suppress = True)
@@ -436,7 +439,7 @@ class GenericSimulator(BaseController):
 
         if self.TERRAIN and self.SIMULATOR=='distributed3d': #terrain is only available in distributed3d
             from base_controllers.tracked_robot.simulator.terrain_manager import TerrainManager
-            self.terrainManager = TerrainManager(rospkg.RosPack().get_path('tractor_description') + "/meshes/sphere2.stl")
+            self.terrainManager = TerrainManager(rospkg.RosPack().get_path('tractor_description') + "/meshes/sphere3.stl")
             self.tracked_vehicle_simulator.setTerrainManager(self.terrainManager)
             if self.IDENT_TYPE=='WHEELS' :
                 from base_controllers.tracked_robot.simulator.terrain_manager import create_ramp_mesh
@@ -595,6 +598,27 @@ class GenericSimulator(BaseController):
 
         return optimized_xi_meters[:,0] , optimized_xi_meters[:,1], optimized_xi_meters[:,2], np.zeros(optimized_xi_meters.shape[0]), np.zeros(optimized_xi_meters.shape[0]), params.dT
 
+    # Extract pitch, yaw and roll from rotation matrix
+    def rotationMatrixToEulerAngles(self, R):
+
+        # Sine of pitch angle
+        sy = math.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
+
+        if sy < 1e-6:
+            singular = True
+        else:
+            singular = False
+
+        if not singular:
+            x = math.atan2(R[2, 1], R[2, 2])
+            y = math.atan2(-R[2, 0], sy)
+            z = math.atan2(R[1, 0], R[0, 0])
+        else:
+            x = math.atan2(-R[1, 2], R[1, 1])
+            y = math.atan2(-R[2, 0], sy)
+            z = 0
+
+        return np.array([x, y, z])
 
     def getChomp_Dubins(self, start, goal, long_vel, omega, R_sphere):
         from tracked_robot.planners.chomp_no_theta import ChompSolver, Params
@@ -616,8 +640,8 @@ class GenericSimulator(BaseController):
         # map origin
         xRange = np.array([0.0, 500.0])
         yRange = np.array([0.0, 500.0])
-        rows = 2000
-        cols = 2000
+        rows = 100#2000
+        cols = 100#2000
         epsilon = 50.0
         M = ch.constructMap(xRange, yRange, rows, cols, obstacles, epsilon)
 
@@ -633,6 +657,118 @@ class GenericSimulator(BaseController):
         # meter to world_unit
         sx = xL_m_des / xL_world
         sy = yL_m_des / yL_world
+
+        #modify chomp map M to include cost of slippage
+        rows_M = M.rows
+        cols_M = M.cols
+        obstacle_cost_M = M.obstacle_cost
+        slip_cost_M = np.zeros_like(obstacle_cost_M)
+
+        #save values of roll, pitch, yaw to visualize how they change on the mesh
+        roll_map = np.zeros_like(obstacle_cost_M)
+        pitch_map = np.zeros_like(obstacle_cost_M)
+        yaw_map = np.zeros_like(obstacle_cost_M)
+        map_meters = np.zeros((rows, cols, 2), dtype=float)
+
+        # gradient spacing
+        Dx = xL_world / cols
+        Dy = yL_world / rows
+
+        # computing the offset in position between center of sphere and reference frame used for position to mesh
+        terrain_offset_pose = np.array([0, 0, 0, 0, 0, 0])
+        offset_position, _, _, _ = p.terrainManager.project_on_mesh(
+            point=terrain_offset_pose[:2], direction=np.array([0., 0., 1.]))
+
+        x_offset = 0 - offset_position[0]
+        y_offset = 0 - offset_position[1]
+        z_offset = R_sphere - offset_position[2]
+
+        print('Computing the cost due to slippage')
+        for i in range(rows_M):
+            for j in range(cols_M):
+                #x and y components of elements of map in meters
+                x_ij = j/cols_M * xL_m_des
+                y_ij = i/rows_M * yL_m_des
+                p_ij = np.array([x_ij, y_ij, 0, 0, 0, 0])
+                p_mesh_ij, roll_ij, pitch_ij, yaw_ij = p.terrainManager.project_on_mesh(
+                    point=p_ij[:2], direction=np.array([0., 0., 1.]))
+
+                z_ij = math.sqrt(R_sphere**2 - (x_ij + x_offset)**2 - (y_ij + y_offset)**2)
+                RF_sphere = p.rotation_on_sphere(np.array([x_ij + x_offset, y_ij + y_offset, z_ij]), 0, R_sphere)
+                RF_sphere[:,0] = RF_sphere[:,0]/R_sphere
+                R_check = p.rotation_on_sphere(np.array([0, 0, R_sphere]), 0, R_sphere)
+                R_ij = RF_sphere.copy()
+                R_ij[:,0] = RF_sphere[:,1]
+                R_ij[:,1] = RF_sphere[:,2]
+                R_ij[:,2] = RF_sphere[:,0]
+                if( i + j == 0):
+                    print(z_ij)
+                    print(R_ij)
+                    print('\n')
+                    print(RF_sphere)
+                    print('\n')
+                    print(R_check)
+                yaw_ij = np.arcsin(np.inner(R_ij[:,0], np.array([0,1,0])))
+                pitch_ij = np.arcsin(np.inner(R_ij[:,2], np.array([1,0,0])))
+                roll_ij = np.arcsin(np.inner(R_ij[:,1], np.array([0,0,1])))
+                #roll_ij, pitch_ij, yaw_ij = p.rotationMatrixToEulerAngles(R_ij)
+                #roll_ij = np.arctan2(R_ij[2, 1], R_ij[2, 2])
+                #pitch_ij = np.arctan2(-R_ij[2, 0], np.sqrt(R_ij[2, 1] * R_ij[2, 1] + R_ij[2, 2] * R_ij[2, 2]))
+                #yaw_ij = np.arctan2(R_ij[1, 0], R_ij[0, 0])
+
+                slip_cost_M[i, j] = (300*pitch_ij)**2  # roll_ij**2 + pitch_ij**2 + yaw_ij**2
+
+                roll_map[i, j] = roll_ij
+                pitch_map[i, j] = pitch_ij
+                yaw_map[i, j] = yaw_ij
+                map_meters[i, j, 0] = y_ij
+                map_meters[i, j, 1] = x_ij
+
+        print('Computing the gradient associated to slip cost')
+        gradcy_slip, gradcx_slip = np.gradient(slip_cost_M, Dy, Dx)
+
+        print('Plotting roll, pitch, yaw map')
+        Y_plot = map_meters[:, :, 0]
+        X_plot = map_meters[:, :, 1]
+
+        # ---------- Roll ----------
+        fig1 = plt.figure()
+        ax1 = fig1.add_subplot(111, projection='3d')
+
+        ax1.plot_surface(X_plot, Y_plot, roll_map)
+        ax1.set_title("Roll map")
+        ax1.set_xlabel("x")
+        ax1.set_ylabel("y")
+        ax1.set_zlabel("roll")
+
+        # ---------- Pitch ----------
+        fig2 = plt.figure()
+        ax2 = fig2.add_subplot(111, projection='3d')
+
+        ax2.plot_surface(X_plot, Y_plot, pitch_map)
+        ax2.set_title("Pitch map")
+        ax2.set_xlabel("x")
+        ax2.set_ylabel("y")
+        ax2.set_zlabel("pitch")
+
+        # ---------- Yaw ----------
+        fig3 = plt.figure()
+        ax3 = fig3.add_subplot(111, projection='3d')
+
+        ax3.plot_surface(X_plot, Y_plot, yaw_map)
+        ax3.set_title("Yaw map")
+        ax3.set_xlabel("x")
+        ax3.set_ylabel("y")
+        ax3.set_zlabel("yaw")
+
+        plt.show(block=False)
+
+        #update cost and gradient of map M with slippage cost and gradient
+        M.obstacle_cost = np.flipud(slip_cost_M)
+        M.gradcx = np.flipud(gradcx_slip)
+        M.gradcy = np.flipud(gradcy_slip)
+
+
         import rospkg
         if self.OBSTACLES:
             ch.obstacles_to_stl_scaled(obstacles, rospkg.RosPack().get_path('tractor_description') + '/meshes/obstacles.stl',
@@ -1003,7 +1139,7 @@ class GenericSimulator(BaseController):
         omega_vec.append(0.0)
         return v_vec, omega_vec
 
-    def estimateSlippages(self,W_baseTwist, theta, qd):
+    def estimateSlippages(self, W_baseTwist, theta, qd):
         wheel_L = qd[0]
         wheel_R = qd[1]
 
@@ -1190,7 +1326,7 @@ class GenericSimulator(BaseController):
             if self.IDENT_TYPE=='WHEELS' and self.SIMULATOR=='distributed3d':
                 self.ros_pub.add_plane(pos=np.array([0,0,-0.]), orient=np.array([0., self.RAMP_INCLINATION, 0]), color="white", alpha=0.5)
             else:
-                self.ros_pub.add_mesh("tractor_description", "/meshes/sphere2.stl", position=np.array([0., 0., 0.0]), color="red", alpha=1.0)
+                self.ros_pub.add_mesh("tractor_description", "/meshes/sphere3.stl", position=np.array([0., 0., 0.0]), color="red", alpha=1.0)
                 if self.OBSTACLES:
                     self.ros_pub.add_mesh("tractor_description", '/meshes/obstacles.stl', position=np.array([0., 0., 0.0]), color="blue", alpha=1.0)
         if np.mod(self.time,1) == 0:

@@ -182,7 +182,8 @@ class ChompSolver:
             print(f"\nIteration {it:3d} |", end="")
 
             # Step 1: total functional gradient
-            (nabla_U_vec, nabla_Fobs_vec, nabla_Fsmooth_vec, total_cost,  Fobs_cost, Fsmooth_cost) = self.calculate_total_gradient(xi, T, robot, params, M, A, b_vec, c, lambda_, DOF)
+            (nabla_U_vec, nabla_Fobs_vec, nabla_Fsmooth_vec, total_cost,  Fobs_cost, Fsmooth_cost) \
+                = self.calculate_total_gradient(xi, T, robot, params, M, A, b_vec, c, lambda_, DOF)
 
             # todo check  nabla_Fobs_vec is twice higher than the matlab one
 
