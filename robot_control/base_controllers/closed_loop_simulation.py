@@ -424,7 +424,7 @@ class GenericSimulator(BaseController):
         self.reset_joints_client = ros.ServiceProxy('/gazebo/set_model_configuration', SetModelConfiguration)
         self.des_vel_pub = ros.Publisher("/des_vel", JointState, queue_size=1, tcp_nodelay=True)
 
-        #self.clock_pub = ros.Publisher('/clock', Clock, queue_size=10)
+        self.clock_pub = ros.Publisher('/clock', Clock, queue_size=10)
 
 
         if self.TERRAIN and self.SIMULATOR=='distributed3d': #terrain is only available in distributed3d
@@ -524,8 +524,7 @@ class GenericSimulator(BaseController):
 
         self.check_time = ros.Time.now().to_sec()
 
-    def get\
-                    (self, long_vel, dt = 0.001):
+    def getClothoids(self, long_vel, dt = 0.001):
         import Clothoids
         curve = Clothoids.ClothoidCurve("curve")
         curve.build_G1(self.p0[0], self.p0[1], self.p0[2], self.pf[0], self.pf[1], self.pf[2])
@@ -1046,7 +1045,7 @@ class GenericSimulator(BaseController):
             self.checkLoopFrequency()
 
         # Publish clock to have ros.Time.now sync with self.time
-        #self.clock_pub.publish(Clock(clock=ros.Time.from_sec(self.time)))
+        self.clock_pub.publish(Clock(clock=ros.Time.from_sec(self.time)))
 
         # No need to change the convention because in the HW interface we use our conventtion (see ros_impedance_contoller_xx.yaml)
         msg = JointState()
