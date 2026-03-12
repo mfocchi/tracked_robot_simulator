@@ -48,9 +48,9 @@ class GenericSimulator(BaseController):
         print("Initialized tractor controller---------------------------------------------------------------")
         self.SIMULATOR = 'distributed3d'#  'distributed2d'(2d) 'distributed3d'
         self.TERRAIN = True #True: Slopes False: Flat terrain
-        self.ControlType = 'CLOSED_LOOP_SLIP_0' #'OPEN_LOOP' 'CLOSED_LOOP_UNICYCLE' 'CLOSED_LOOP_SLIP_0'
-        self.SIDE_SLIP_COMPENSATION = 'MACHINE_LEARNING' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
-        self.LONG_SLIP_COMPENSATION = 'MACHINE_LEARNING' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
+        self.ControlType = 'CLOSED_LOOP_UNICYCLE' #'OPEN_LOOP' 'CLOSED_LOOP_UNICYCLE' 'CLOSED_LOOP_SLIP_AWARE'
+        self.SIDE_SLIP_COMPENSATION = 'NONE' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
+        self.LONG_SLIP_COMPENSATION = 'NONE' # 'MACHINE_LEARNING', 'NONE', 'EXP(not used)'
         self.SLIPPAGE_INFERENCE_TYPE = 'decision_trees'  # 'decision_trees','interpolator'
         self.ESTIMATE_ALPHA_WITH_ACTUAL_VALUES = True # makes difference for v >= 0.4
 
@@ -67,8 +67,8 @@ class GenericSimulator(BaseController):
         # target used only when self.PLANNING != 'none'
         #IMPORTANT if you set too far velocity goes beyond the limit of the NN training region and slippage estimators will not work!
         self.pf = np.array([220*0.02, 190*0.02, np.pi/4]) #0.02 is the conversion gain to convert units used in chomp_no_theta into meters
-        self.PLANNING = 'chomp' # 'none',  'chomp', 'clothoids'
-        self.TERRAIN_TYPE = 'terrain' #'terrain', 'sphere3'
+        self.PLANNING = 'none' # 'none',  'chomp', 'clothoids'
+        self.TERRAIN_TYPE = 'terrain' #'terrain', 'sphere2'
         self.PLANNING_DURATION = 20.
         self.PLANNING_SPEED = 0.4
         self.SAVE_BAGS = False
@@ -1095,7 +1095,7 @@ def main_loop(p):
                 break
 
             # controllers
-            if p.ControlType=='CLOSED_LOOP_SLIP_0':
+            if p.ControlType=='CLOSED_LOOP_SLIP_AWARE':
                 p.ctrl_v, p.ctrl_omega,  p.V, p.V_dot, p.alpha_control = p.controller.control_alpha(robot_state, p.time, p.des_x, p.des_y, p.des_theta, p.v_d, p.omega_d,  p.v_dot_d, p.omega_dot_d, traj_finished, p.model_alpha,approx=True)
                 #p.des_theta -=  p.controller.alpha_exp(p.v_d, p.omega_d, p.model_alpha)  # we track theta_d -alpha_d
 
