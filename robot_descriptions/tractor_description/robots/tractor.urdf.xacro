@@ -16,7 +16,6 @@
 
  <xacro:include filename="$(find tractor_description)/robots/maxii.xacro"/>
   <xacro:include filename="$(find tractor_description)/urdfs/front_wheel.xacro"/>
-  <xacro:include filename="$(find tractor_description)/urdfs/caster_wheel.xacro"/>
 
   <!-- Accessories -->
   <xacro:include filename="$(find tractor_description)/urdfs/accessories/gps.xacro"/>
@@ -35,9 +34,7 @@
   <xacro:maxii/>
   <xacro:front_wheel left_right="left" radius="0.0856" length="0.02" position="${position_left}"/>
   <xacro:front_wheel left_right="right" radius="0.0856" length="0.02" position="${position_right}"/>
-  <xacro:caster_wheel name="front" translateX="0.2" translateY="0." radius="0.025" length="0.02"/>
-  <xacro:caster_wheel name="back" translateX="-0.3" translateY="0." radius="0.025" length="0.02"/>
-
+ 
   
 
   <xacro:if value="$(arg arm)">
