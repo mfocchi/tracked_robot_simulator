@@ -596,7 +596,34 @@ class GenericSimulator(BaseController):
         optimized_xi_meters[:, 0] *= sx
         optimized_xi_meters[:, 1] *= sy
 
-        return optimized_xi_meters[:,0] , optimized_xi_meters[:,1], optimized_xi_meters[:,2], np.zeros(optimized_xi_meters.shape[0]), np.zeros(optimized_xi_meters.shape[0]), params.dT
+        #compute velocities
+        dx = np.diff(optimized_xi_meters[:, 0])
+        dy = np.diff(optimized_xi_meters[:, 1])
+        dtheta = np.diff(np.unwrap(optimized_xi_meters[:, 2]))
+
+        # append last value to keep same length N of optimized_xi_meters
+        dx = np.append(dx, dx[-1])
+        dy = np.append(dy, dy[-1])
+        dtheta = np.append(dtheta, dtheta[-1])
+
+        v_des = np.hypot(dx, dy) / params.dT
+        omega_des = dtheta / params.dT
+
+        plt.figure()
+        plt.plot(v_des, "bo-", linewidth=2, markersize=2, label="long")
+        plt.ylim([-1, 1])
+        plt.grid(True)
+        plt.ylabel("v")
+
+        plt.figure()
+        plt.plot(omega_des, "ro-", linewidth=1, markersize=1, label="omega")
+        plt.ylabel("omega")
+        plt.ylim([-1, 1])
+        plt.grid(True)
+        plt.axis("equal")
+        plt.show()
+
+        return optimized_xi_meters[:,0] , optimized_xi_meters[:,1], optimized_xi_meters[:,2], v_des, omega_des, params.dT
 
     # Extract pitch, yaw and roll from rotation matrix
     def rotationMatrixToEulerAngles(self, R):
@@ -826,8 +853,35 @@ class GenericSimulator(BaseController):
         optimized_xi_meters[:, 0] *= sx
         optimized_xi_meters[:, 1] *= sy
 
+        #compute velocities
+        dx = np.diff(optimized_xi_meters[:, 0])
+        dy = np.diff(optimized_xi_meters[:, 1])
+        dtheta = np.diff(np.unwrap(optimized_xi_meters[:, 2]))
+
+        # append last value to keep same length N of optimized_xi_meters
+        dx = np.append(dx, dx[-1])
+        dy = np.append(dy, dy[-1])
+        dtheta = np.append(dtheta, dtheta[-1])
+
+        v_des = np.hypot(dx, dy) / params.dT
+        omega_des = dtheta / params.dT
+
+        plt.figure()
+        plt.plot(v_des, "bo-", linewidth=2, markersize=2, label="long")
+        plt.ylim([-1, 1])
+        plt.grid(True)
+        plt.ylabel("v")
+
+        plt.figure()
+        plt.plot(omega_des, "ro-", linewidth=1, markersize=1, label="omega")
+        plt.ylabel("omega")
+        plt.ylim([-1, 1])
+        plt.grid(True)
+        plt.axis("equal")
+        plt.show()
+
         #return optimized_xi_meters[:,0] , optimized_xi_meters[:,1], optimized_xi_meters[:,2], np.zeros(optimized_xi_meters.shape[0]), np.zeros(optimized_xi_meters.shape[0]), params.dT
-        return optimized_xi_meters[:, 0], optimized_xi_meters[:, 1], optimized_xi_meters[:, 2], np.zeros(optimized_xi_meters.shape[0]), np.zeros(optimized_xi_meters.shape[0]), params.dT
+        return optimized_xi_meters[:, 0], optimized_xi_meters[:, 1], optimized_xi_meters[:, 2], v_des, omega_des, params.dT
 
 
 
