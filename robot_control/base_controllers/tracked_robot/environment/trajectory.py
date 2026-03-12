@@ -53,6 +53,9 @@ class Trajectory:
             self.omega_dot = np.zeros_like(omega)
             self.DT = DT
 
+            assert len(self.x) == len(self.y) == len(self.theta) == len(self.v) == len(self.omega), \
+                "Trajectory: All user defined trajectory vectors must have the same length."
+
     def set_initial_time(self, start_time):
         self.start_time = start_time
 
@@ -130,13 +133,14 @@ class Trajectory:
         #important: to avoid nested arrays force elapsed_time to be a scalar because current_time can be an ndarray
         elapsed_time = float(current_time - self.start_time)
 
-
         N = len(self.v)
         if N < 2:
             raise ValueError("Trajectory must have at least 2 points.")
 
+        t_end = (N - 1) * self.DT
+
         # trajectory duration: last sample at (N)*DT
-        if elapsed_time >= (N) * self.DT:
+        if elapsed_time >= t_end:
             print("Lyapunov controller: trajectory finished")
             return 0, 0, 0, 0, 0, 0, 0, True
 
