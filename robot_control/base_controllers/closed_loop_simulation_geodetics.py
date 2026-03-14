@@ -439,7 +439,7 @@ class GenericSimulator(BaseController):
 
         if self.TERRAIN and self.SIMULATOR=='distributed3d': #terrain is only available in distributed3d
             from base_controllers.tracked_robot.simulator.terrain_manager import TerrainManager
-            self.terrainManager = TerrainManager(rospkg.RosPack().get_path('tractor_description') + "/meshes/sphere3.stl")
+            self.terrainManager = TerrainManager(rospkg.RosPack().get_path('tractor_description') + "/meshes/sphere2.stl")
             self.tracked_vehicle_simulator.setTerrainManager(self.terrainManager)
             if self.IDENT_TYPE=='WHEELS' :
                 from base_controllers.tracked_robot.simulator.terrain_manager import create_ramp_mesh
@@ -703,8 +703,8 @@ class GenericSimulator(BaseController):
 
         # computing the offset in position between center of sphere and reference frame used for position to mesh
         terrain_offset_pose = np.array([0, 0, 0, 0, 0, 0])
-        offset_position, _, _, _ = p.terrainManager.project_on_mesh(
-            point=terrain_offset_pose[:2], direction=np.array([0., 0., 1.]))
+        offset_position, _, _ = p.terrainManager.project_on_mesh(
+            point=terrain_offset_pose[:2], direction=np.array([0., 0., 1.]), base_yaw=self.p0[2])
 
         x_offset = 0 - offset_position[0]
         y_offset = 0 - offset_position[1]
@@ -717,8 +717,10 @@ class GenericSimulator(BaseController):
                 x_ij = j/cols_M * xL_m_des
                 y_ij = i/rows_M * yL_m_des
                 p_ij = np.array([x_ij, y_ij, 0, 0, 0, 0])
-                p_mesh_ij, roll_ij, pitch_ij, yaw_ij = p.terrainManager.project_on_mesh(
-                    point=p_ij[:2], direction=np.array([0., 0., 1.]))
+                #TODO compute yaw_ij analitically!
+                #yaw_ij = ...
+                p_mesh_ij, roll_ij, pitch_ij = p.terrainManager.project_on_mesh(
+                    point=p_ij[:2], direction=np.array([0., 0., 1.]), base_yaw=yaw_ij])
 
                 z_ij = math.sqrt(R_sphere**2 - (x_ij + x_offset)**2 - (y_ij + y_offset)**2)
                 RF_sphere = p.rotation_on_sphere(np.array([x_ij + x_offset, y_ij + y_offset, z_ij]), 0, R_sphere)
@@ -917,15 +919,15 @@ class GenericSimulator(BaseController):
         if self.SIMULATOR=='distributed3d':
             self.terrain_consistent_pose_init=np.array([self.p0[0], self.p0[1], 0, 0, 0, 0]).copy()
             if self.TERRAIN: #ramp and mesh
-                start_position, start_roll, start_pitch, start_yaw = p.terrainManager.project_on_mesh(point=self.terrain_consistent_pose_init[:2], direction=np.array([0., 0., 1.]))
+                start_position, start_roll, start_pitch = p.terrainManager.project_on_mesh(point=self.terrain_consistent_pose_init[:2], direction=np.array([0., 0., 1.]), base_yaw=self.p0[2])
                 self.terrain_consistent_pose_init[:3] = start_position.copy()
                 self.terrain_consistent_pose_init[3] = start_roll
                 self.terrain_consistent_pose_init[4] = start_pitch
-                self.terrain_consistent_pose_init[5] = start_yaw
+                self.terrain_consistent_pose_init[5] = self.p0[2] #yaw is determined by the robot not by the terrain that can enforce only two dofs
                 #self.quaternion_start = pin.Quaternion(pin.rpy.rpyToMatrix(self.terrain_consistent_pose_init[3:]))
 
                 # init com self.vehicle_param.height above ground
-                w_R_terr = p.math_utils.eul2Rot(np.array([start_roll, start_pitch, start_yaw]))
+                w_R_terr = p.math_utils.eul2Rot(self.terrain_consistent_pose_init[3:])
                 self.terrain_consistent_pose_init[:3] += self.tracked_vehicle_simulator.consider_robot_height * (w_R_terr[:, 2] * self.tracked_vehicle_simulator.vehicle_param.height)
             else:
                 self.terrain_consistent_pose_init[:3] += self.tracked_vehicle_simulator.consider_robot_height * (np.array([0.,0.,1.])* self.tracked_vehicle_simulator.vehicle_param.height)
@@ -1331,8 +1333,10 @@ class GenericSimulator(BaseController):
 
             if self.SIMULATOR=='distributed3d':
                 if self.TERRAIN:
-                    pg, terrain_roll, terrain_pitch, terrain_yaw = self.terrainManager.project_on_mesh(point=self.basePoseW[:2], direction=np.array([0., 0., 1.]))
-                    pose_des, terrain_roll_des, terrain_pitch_des, terrain_yaw_des = self.terrainManager.project_on_mesh(point=np.array([self.des_x, self.des_y]), direction=np.array([0., 0., 1.]))
+                    pg, terrain_roll, terrain_pitch = self.terrainManager.project_on_mesh(point=self.basePoseW[:2], direction=np.array([0., 0., 1.]), base_yaw=self.basePoseW[5])
+                    pose_des, terrain_roll_des, terrain_pitch_des = self.terrainManager.project_on_mesh(point=np.array([self.des_x, self.des_y]), direction=np.array([0., 0., 1.]), base_yaw=self.basePoseW[5])
+                    # terrain yaw is determined by the robot orientation!
+                    terrain_yaw = self.basePoseW[5]
                     w_R_terr = self.math_utils.eul2Rot(np.array([terrain_roll, terrain_pitch, terrain_yaw]))
                     w_normal = w_R_terr.dot(np.array([0, 0, 1]))
 
@@ -1380,7 +1384,7 @@ class GenericSimulator(BaseController):
             if self.IDENT_TYPE=='WHEELS' and self.SIMULATOR=='distributed3d':
                 self.ros_pub.add_plane(pos=np.array([0,0,-0.]), orient=np.array([0., self.RAMP_INCLINATION, 0]), color="white", alpha=0.5)
             else:
-                self.ros_pub.add_mesh("tractor_description", "/meshes/sphere3.stl", position=np.array([0., 0., 0.0]), color="red", alpha=1.0)
+                self.ros_pub.add_mesh("tractor_description", "/meshes/sphere2.stl", position=np.array([0., 0., 0.0]), color="red", alpha=1.0)
                 if self.OBSTACLES:
                     self.ros_pub.add_mesh("tractor_description", '/meshes/obstacles.stl', position=np.array([0., 0., 0.0]), color="blue", alpha=1.0)
         if np.mod(self.time,1) == 0:
@@ -1485,6 +1489,9 @@ def main_loop(p):
                 p.des_x_vec, p.des_y_vec,p.des_theta_vec, v_ol, omega_ol, p.plan_dt=  p.getChomp(p.p0,p.pf)
                 # p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt =\
                 #     p.getChomp_Dubins(p.p0, p.pf, long_vel=0.3, omega=0.5, R_sphere=200)
+                # IMPORTANT need to override p0[2] pf[2] because I cannot optimize for orientation
+                p.p0[2] = p.des_theta_vec[0]
+                p.pf[2] = p.des_theta_vec[-1]
                 p.plotChompTraj(p.des_x_vec, p.des_y_vec)
             elif p.PLANNING == 'matlab':
                 p.des_x_vec, p.des_y_vec,p.des_theta_vec, v_ol, omega_ol, p.plan_dt=  p.getTrajFromMatlab()
@@ -1496,7 +1503,8 @@ def main_loop(p):
                 pass
             p.traj = Trajectory(None, p.des_x_vec, p.des_y_vec, p.des_theta_vec, None, DT=p.plan_dt, v=v_ol, omega=omega_ol)
             traj_length = len(v_ol)
-
+        p.startupProcedure()
+        p.traj.set_initial_time(start_time=p.time)
         while not ros.is_shutdown():
             if p.IDENT_TYPE == 'WHEELS':
                 if counter>=traj_length:
@@ -1533,6 +1541,7 @@ def main_loop(p):
             p.time = np.round(p.time + np.array([conf.robot_params[p.robot_name]['dt']]),  4)  # to avoid issues of dt 0.0009999
     else:
         # CLOSE loop control
+        p.startupProcedure()
         # generate reference trajectory
         vel_gen = VelocityGenerator(simulation_time=20.,    DT=conf.robot_params[p.robot_name]['dt'])
         if p.PLANNING == 'none':
@@ -1559,8 +1568,10 @@ def main_loop(p):
                 p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt = p.getClothoids(long_vel=0.4, dt=conf.robot_params[p.robot_name]['dt'])
             elif p.PLANNING == 'chomp':
                 #p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt = p.getChomp(p.p0,p.pf)
-                p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt =\
-                     p.getChomp_Dubins(p.p0, p.pf, long_vel=0.3, omega=0.5, R_sphere=200)
+                p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt = p.getChomp_Dubins(p.p0, p.pf, long_vel=0.3, omega=0.5, R_sphere=200)
+                # IMPORTANT need to override p0[2] pf[2] because I cannot optimize for orientation
+                p.p0[2] = p.des_theta_vec[0]
+                p.pf[2] = p.des_theta_vec[-1]
                 p.plotChompTraj(p.des_x_vec, p.des_y_vec)
                 print('Number of elements in x_des:')
                 print(p.des_x_vec.shape)
@@ -1585,6 +1596,7 @@ def main_loop(p):
         p.controller = LyapunovController(params=params, robot_constants=constants)#, matlab_engine = p.eng)
         p.controller.setSideSlipCompensationType(p.SIDE_SLIP_COMPENSATION)
         p.controller.setSlippageInferenceType(p.SLIPPAGE_INFERENCE_TYPE)
+
         p.traj.set_initial_time(start_time=p.time)
         while not ros.is_shutdown():
 

@@ -141,7 +141,7 @@ class Trajectory:
 
         # trajectory duration: last sample at (N)*DT
         if elapsed_time >= t_end:
-            print("Lyapunov controller: trajectory finished")
+            print("Trajectory finished")
             return 0, 0, 0, 0, 0, 0, 0, True
 
         # Continuous index in sample units

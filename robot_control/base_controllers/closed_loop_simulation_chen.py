@@ -67,7 +67,7 @@ class GenericSimulator(BaseController):
         # target used only when self.PLANNING != 'none'
         #IMPORTANT if you set too far velocity goes beyond the limit of the NN training region and slippage estimators will not work!
         self.pf = np.array([220*0.02, 190*0.02, np.pi/4]) #0.02 is the conversion gain to convert units used in chomp_no_theta into meters
-        self.PLANNING = 'none' # 'none',  'chomp', 'clothoids'
+        self.PLANNING = 'chomp' # 'none',  'chomp', 'clothoids'
         self.TERRAIN_TYPE = 'terrain' #'terrain', 'sphere2'
         self.PLANNING_DURATION = 20.
         self.PLANNING_SPEED = 0.4
@@ -427,15 +427,15 @@ class GenericSimulator(BaseController):
         if self.SIMULATOR=='distributed3d':
             self.terrain_consistent_pose_init=np.array([self.p0[0], self.p0[1], 0, 0, 0, 0]).copy()
             if self.TERRAIN: #ramp and mesh
-                start_position, start_roll, start_pitch, start_yaw = p.terrainManager.project_on_mesh(point=self.terrain_consistent_pose_init[:2], direction=np.array([0., 0., 1.]))
+                start_position, start_roll, start_pitch = p.terrainManager.project_on_mesh(point=self.terrain_consistent_pose_init[:2], direction=np.array([0., 0., 1.]), base_yaw=self.p0[2])
                 self.terrain_consistent_pose_init[:3] = start_position.copy()
                 self.terrain_consistent_pose_init[3] = start_roll
                 self.terrain_consistent_pose_init[4] = start_pitch
-                self.terrain_consistent_pose_init[5] = start_yaw
+                self.terrain_consistent_pose_init[5] = self.p0[2] #yaw is determined by the robot not by the terrain that can enforce only two dofs
                 #self.quaternion_start = pin.Quaternion(pin.rpy.rpyToMatrix(self.terrain_consistent_pose_init[3:]))
 
                 # init com self.vehicle_param.height above ground
-                w_R_terr = p.math_utils.eul2Rot(np.array([start_roll, start_pitch, start_yaw]))
+                w_R_terr = p.math_utils.eul2Rot(self.terrain_consistent_pose_init[3:])
                 self.terrain_consistent_pose_init[:3] += self.tracked_vehicle_simulator.consider_robot_height * (w_R_terr[:, 2] * self.tracked_vehicle_simulator.vehicle_param.height)
             else:
                 self.terrain_consistent_pose_init[:3] += self.tracked_vehicle_simulator.consider_robot_height * (np.array([0.,0.,1.])* self.tracked_vehicle_simulator.vehicle_param.height)
@@ -844,9 +844,11 @@ class GenericSimulator(BaseController):
 
             if self.SIMULATOR=='distributed3d':
                 if self.TERRAIN:
-                    pg, terrain_roll, terrain_pitch, terrain_yaw = self.terrainManager.project_on_mesh(point=self.basePoseW[:2], direction=np.array([0., 0., 1.]))
-                    pose_des, terrain_roll_des, terrain_pitch_des, terrain_yaw_des = self.terrainManager.project_on_mesh(point=np.array([self.des_x, self.des_y]), direction=np.array([0., 0., 1.]))
-                    w_R_terr = self.math_utils.eul2Rot(np.array([terrain_roll, terrain_pitch, terrain_yaw]))
+                    pg, terrain_roll, terrain_pitch = self.terrainManager.project_on_mesh(point=self.basePoseW[:2], direction=np.array([0., 0., 1.]), base_yaw=self.basePoseW[5])
+                    pose_des, terrain_roll_des, terrain_pitch_des = self.terrainManager.project_on_mesh(point=np.array([self.des_x, self.des_y]), direction=np.array([0., 0., 1.]), base_yaw=self.basePoseW[5])
+                    #terrain yaw is determined by the robot orientation!
+                    terrain_yaw = self.basePoseW[5]
+                    w_R_terr = self.math_utils.eul2Rot(np.array([terrain_roll, terrain_pitch,terrain_yaw]))
                     w_normal = w_R_terr.dot(np.array([0, 0, 1]))
 
                     # self.ros_pub.add_arrow(pg, w_normal * 0.5, color="white")
@@ -858,7 +860,7 @@ class GenericSimulator(BaseController):
                     terrain_yaw = 0.
                     pg = np.array([self.basePoseW[0], self.basePoseW[1], 0.])
                     pose_des = np.array([p.des_x, p.des_y, pg[2]])
-
+                #pg is the point on ground correspondent to pcom_on_track_level
                 self.b_eox, self.b_eoy =self.tracked_vehicle_simulator.simulateOneStep(pg,  terrain_roll,  terrain_pitch, terrain_yaw, qd_des[0], qd_des[1])
                 self.basePoseW, self.baseTwistW = self.tracked_vehicle_simulator.getRobotState()
                 # shift up  of robot height along Zb component
@@ -946,7 +948,7 @@ def main_loop(p):
     p.initVars()
     p.q_old = np.zeros(2)
     p.initSubscribers()
-    p.startupProcedure()
+
 
     #init joints
     p.q_des = np.copy(p.q_des_q0)
@@ -995,13 +997,17 @@ def main_loop(p):
             if p.PLANNING=='clothoids':
                 p.des_x_vec, p.des_y_vec,p.des_theta_vec, v_ol, omega_ol, p.plan_dt= p.getClothoids(long_vel=0.4, dt = 0.001)
             elif p.PLANNING=='chomp':
-                p.des_x_vec, p.des_y_vec,p.des_theta_vec, v_ol, omega_ol, p.plan_dt=  p.getChomp(p.p0,p.pf)
+                p.des_x_vec, p.des_y_vec,p.des_theta_vec, v_ol, omega_ol, p.plan_dt =  p.getChomp(p.p0,p.pf)
+                #IMPORTANT need to override p0[2] pf[2] because I cannot optimize for orientation
+                p.p0[2] = p.des_theta_vec[0]
+                p.pf[2] = p.des_theta_vec[-1]
                 p.plotChompTraj(p.des_x_vec, p.des_y_vec)
             else:
                 pass
             p.traj = Trajectory(None, p.des_x_vec, p.des_y_vec, p.des_theta_vec, None, DT=p.plan_dt, v=v_ol, omega=omega_ol)
             traj_length = len(v_ol)
-
+        p.startupProcedure()
+        p.traj.set_initial_time(start_time=p.time)
         while not ros.is_shutdown():
             p.now = ros.Time.from_sec(p.time)
             if p.IDENT_TYPE == 'WHEELS':
@@ -1034,6 +1040,7 @@ def main_loop(p):
             p.time = np.round(p.time + np.array([conf.robot_params[p.robot_name]['dt']]),  4)  # to avoid issues of dt 0.0009999
     else:
         # CLOSE loop control
+        p.startupProcedure()
         # generate reference trajectory
         vel_gen = VelocityGenerator(simulation_time=20.,    DT=conf.robot_params[p.robot_name]['dt'])
         if p.PLANNING == 'none':
@@ -1060,6 +1067,9 @@ def main_loop(p):
                 p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt = p.getClothoids(long_vel=0.4, dt=conf.robot_params[p.robot_name]['dt'])
             elif p.PLANNING == 'chomp':
                 p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt = p.getChomp(p.p0,p.pf)
+                #IMPORTANT need to override p0[2] pf[2] because I cannot optimize for orientation
+                p.p0[2] = p.des_theta_vec[0]
+                p.pf[2] = p.des_theta_vec[-1]
                 p.plotChompTraj(p.des_x_vec, p.des_y_vec)
             else:
                 pass
@@ -1071,6 +1081,7 @@ def main_loop(p):
         p.controller = LyapunovController(params=params, robot_constants=constants)#, matlab_engine = p.eng)
         p.controller.setSideSlipCompensationType(p.SIDE_SLIP_COMPENSATION)
         p.controller.setSlippageInferenceType(p.SLIPPAGE_INFERENCE_TYPE)
+
         p.traj.set_initial_time(start_time=p.time)
         while not ros.is_shutdown():
             p.now = ros.Time.from_sec(p.time)

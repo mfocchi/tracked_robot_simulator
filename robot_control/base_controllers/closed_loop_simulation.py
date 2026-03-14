@@ -47,9 +47,6 @@ from gazebo_msgs.srv import SetModelState
 from gazebo_msgs.srv import SetModelStateRequest
 from rosgraph_msgs.msg import Clock
 
-#importing the files implementing Dubins on sphere
-import CubicEquationSolver
-import Path_generation_sphere as sphere
 
 robotName = "tractor" # needs to inherit BaseController
 
@@ -89,7 +86,7 @@ class GenericSimulator(BaseController):
         #self.pf = np.array([1, 1, 0])
         self.pf = np.array([1, 2, 0])
         #self.pf = np.array([10, 20, 0])
-        self.PLANNING = 'dubins' # 'none', 'dubins' , 'optim', 'clothoids'
+        self.PLANNING = 'none' # 'none', 'dubins' , 'optim', 'clothoids'
         self.PLANNING_SPEED = 0.4
 
         self.GRAVITY_COMPENSATION = False
@@ -108,118 +105,6 @@ class GenericSimulator(BaseController):
             custom_models_path = rospkg.RosPack().get_path('wolf_gazebo_resources') + "/models/"
             os.environ["GAZEBO_MODEL_PATH"] += ":" + custom_models_path
         self.use_ground_truth_contacts = False
-
-
-    #compute rotation matrix needed by Dubins library
-    def rotation_on_sphere(self, p, theta, r_sphere):
-        e_r = p / np.linalg.norm(p)
-
-        x_world = np.array([1.0, 0.0, 0.0])
-        e_t0 = x_world - np.dot(x_world, e_r) * e_r
-
-        e_t0 /= np.linalg.norm(e_t0)
-
-        e_t1 = np.cross(e_r, e_t0)
-
-        e_t = np.cos(theta) * e_t0 + np.sin(theta) * e_t1
-        e_b = np.cross(e_r, e_t)
-
-        R = np.column_stack((e_r*r_sphere, e_t, e_b))
-        return R
-
-    #added a method to compute the reference Dubins on sphere
-    def getDubins(self, long_vel, omega, R_sphere, dt):
-
-        #initial and final pose and orientation in 3D
-        terrain_consistent_pose_init = np.array([self.p0[0], self.p0[1], 0, 0, 0, 0])
-        terrain_consistent_pose_fin = np.array([self.pf[0], self.pf[1], 0, 0, 0, 0])
-
-        # computing the offset in position between center of sphere and reference frame used for position to mesh
-        terrain_offset_pose = np.array([0, 0, 0, 0, 0, 0])
-        offset_position, _, _, _ = p.terrainManager.project_on_mesh(
-            point=terrain_offset_pose[:2], direction=np.array([0., 0., 1.]))
-
-        x_offset = 0 - offset_position[0]
-        y_offset = 0 - offset_position[1]
-        z_offset = R_sphere - offset_position[2]
-
-        p_offset = np.array([x_offset, y_offset, z_offset])
-
-        print('Position offset')
-        print(p_offset)
-        print('\n')
-
-        #retrieving initial position and orientation in 3D relative to mesh
-        start_position, start_roll, start_pitch, start_yaw = p.terrainManager.project_on_mesh(
-            point=terrain_consistent_pose_init[:2], direction=np.array([0., 0., 1.]))
-
-        RF_ini = self.rotation_on_sphere(start_position + p_offset, start_yaw, R_sphere)
-        #w_R_terr = p.math_utils.eul2Rot(np.array([start_roll, start_pitch, start_yaw]))
-        #sphere radius
-        #RF_ini = w_R_terr
-        #RF_ini[:, 0] = R_sphere * RF_ini[:, 0]
-
-        print('Initial position')
-        print(start_position)
-        print('\n')
-        angles = np.array([start_roll, start_pitch, start_yaw])
-        print('Initial roll, pitch, yaw')
-        print(angles)
-        print('\n')
-
-        # retrieving final position and orientation in 3D relative to mesh
-        final_position, final_roll, final_pitch, final_yaw = p.terrainManager.project_on_mesh(
-            point=terrain_consistent_pose_fin[:2], direction=np.array([0., 0., 1.]))
-        RF_fin = self.rotation_on_sphere(final_position + p_offset, final_yaw, R_sphere)
-        #w_R_terr = p.math_utils.eul2Rot(np.array([final_roll, final_pitch, final_yaw]))
-        #RF_fin = w_R_terr
-        #RF_fin[:, 0] = R_sphere * RF_fin[:, 0]
-
-        print('Final position')
-        print(final_position)
-        print('\n')
-        angles = np.array([final_roll, final_pitch, final_yaw])
-        print('Final roll, pitch, yaw')
-        print(angles)
-        print('\n')
-
-        r_turn = long_vel/omega
-
-        print("Initial reference frame")
-        print(RF_ini)
-        print('\n')
-        print("Final reference frame")
-        print(RF_fin)
-        print('\n')
-        #find the optimal path
-        Dubins_type, Dubins_length, Dubins_angles, Dubins_x, Dubins_y, Dubins_z,\
-        Tx, Ty, Tz, possible_path_types, possible_path_params = sphere.optimal_path_sphere(RF_ini, RF_fin, r_turn, R_sphere)
-
-        with open("dubins_output_optimal.txt", "w") as f:
-
-            f.write("des_x_vec:\n")
-            np.savetxt(f, Dubins_x)
-
-            f.write("\ndes_y_vec:\n")
-            np.savetxt(f, Dubins_y)
-
-            f.write("\ndes_z_vec:\n")
-            np.savetxt(f, Dubins_z)
-
-        #get reference x_ref, y_ref, theta_ref, v_ref, omega_ref, time_ref along the optimal path
-        x_coords_path, y_coords_path, z_coords_path, fin_config_path, x_coords_circles, \
-        y_coords_circles, z_coords_circles, Tx_path, Ty_path, Tz_path, v_path, omega_path, time_path, theta_path\
-        = sphere.points_path_delta(RF_ini, r_turn, R_sphere, Dubins_angles, long_vel, omega, dt, Dubins_type)
-
-
-        des_x_vec = x_coords_path - x_offset
-        des_y_vec = y_coords_path - y_offset
-        des_z_vec = z_coords_path - z_offset
-        des_theta_vec = theta_path
-        v_ol = v_path
-        omega_ol = omega_path
-        plan_dt = dt #time_path
-        return des_x_vec, des_y_vec, des_z_vec, des_theta_vec, v_ol, omega_ol, plan_dt
 
     def initVars(self):
         super().initVars()
@@ -606,13 +491,13 @@ class GenericSimulator(BaseController):
             if self.SIMULATOR=='distributed3d':
                 self.terrain_consistent_pose_init=np.array([self.p0[0], self.p0[1], 0, 0, 0, 0])
                 if self.TERRAIN: #ramp and mesh
-                    start_position, start_roll, start_pitch, start_yaw = p.terrainManager.project_on_mesh(point=self.terrain_consistent_pose_init[:2], direction=np.array([0., 0., 1.]))
+                    start_position, start_roll, start_pitch = p.terrainManager.project_on_mesh(point=self.terrain_consistent_pose_init[:2], direction=np.array([0., 0., 1.]), base_yaw=self.p0[2])
                     self.terrain_consistent_pose_init[:3] = start_position.copy()
                     self.terrain_consistent_pose_init[3] = start_roll
                     self.terrain_consistent_pose_init[4] = start_pitch
-                    self.terrain_consistent_pose_init[5] = start_yaw
+                    self.terrain_consistent_pose_init[5] = self.p0[2] #yaw is determined by the robot not by the terrain that can enforce only two dofs
                     # init com self.vehicle_param.height above ground
-                    w_R_terr = p.math_utils.eul2Rot(np.array([start_roll, start_pitch, start_yaw]))
+                    w_R_terr = p.math_utils.eul2Rot(self.terrain_consistent_pose_init[3:])
                     self.terrain_consistent_pose_init[:3] += self.tracked_vehicle_simulator.consider_robot_height * (w_R_terr[:, 2] * self.tracked_vehicle_simulator.vehicle_param.height)
                 else:
                     self.terrain_consistent_pose_init[:3] += self.tracked_vehicle_simulator.consider_robot_height * (np.array([0.,0.,1.])* self.tracked_vehicle_simulator.vehicle_param.height)
@@ -1070,8 +955,10 @@ class GenericSimulator(BaseController):
 
             if self.SIMULATOR=='distributed3d':
                 if self.TERRAIN:
-                    pg, terrain_roll, terrain_pitch, terrain_yaw = self.terrainManager.project_on_mesh(point=self.basePoseW[:2], direction=np.array([0., 0., 1.]))
-                    pose_des, terrain_roll_des, terrain_pitch_des, terrain_yaw_des = self.terrainManager.project_on_mesh(point=np.array([self.des_x, self.des_y]), direction=np.array([0., 0., 1.]))
+                    pg, terrain_roll, terrain_pitch = self.terrainManager.project_on_mesh(point=self.basePoseW[:2], direction=np.array([0., 0., 1.]), base_yaw=self.basePoseW[5])
+                    pose_des, terrain_roll_des, terrain_pitch_des = self.terrainManager.project_on_mesh(point=np.array([self.des_x, self.des_y]), direction=np.array([0., 0., 1.]), base_yaw=self.basePoseW[5])
+                    # terrain yaw is determined by the robot orientation!
+                    terrain_yaw = self.basePoseW[5]
                     w_R_terr = self.math_utils.eul2Rot(np.array([terrain_roll, terrain_pitch, terrain_yaw]))
                     w_normal = w_R_terr.dot(np.array([0, 0, 1]))
 
@@ -1084,7 +971,7 @@ class GenericSimulator(BaseController):
                     terrain_yaw = 0.
                     pg = np.array([self.basePoseW[0], self.basePoseW[1], 0.])
                     pose_des = np.array([p.des_x, p.des_y, pg[2]])
-
+                # pg is the point on ground correspondent to pcom_on_track_level
                 self.b_eox, self.b_eoy =self.tracked_vehicle_simulator.simulateOneStep(pg,  terrain_roll,  terrain_pitch, terrain_yaw, qd_des[0], qd_des[1], self.F_lx, self.F_rx)
                 self.basePoseW, self.baseTwistW = self.tracked_vehicle_simulator.getRobotState()
                 # shift up  of robot height along Zb component
@@ -1250,7 +1137,7 @@ def main_loop(p):
     p.initVars()
     p.q_old = np.zeros(2)
     p.initSubscribers()
-    p.startupProcedure()
+
     #init joints
     p.q_des = np.copy(p.q_des_q0)
     p.q_old = np.zeros(2)
@@ -1305,7 +1192,8 @@ def main_loop(p):
             #
             p.traj = Trajectory(None, des_x_vec, des_y_vec,des_theta_vec, None, DT=plan_dt, v=v_ol, omega=omega_ol)
             traj_length = len(v_ol)
-
+        p.startupProcedure()
+        p.traj.set_initial_time(start_time=p.time)
         while not ros.is_shutdown():
             if p.IDENT_TYPE == 'WHEELS':
                 if counter>=traj_length:
@@ -1352,6 +1240,7 @@ def main_loop(p):
     else:
 
         # CLOSE loop control
+        p.startupProcedure()
         # generate reference trajectory
         vel_gen = VelocityGenerator(simulation_time=20.,    DT=conf.robot_params[p.robot_name]['dt'])
         if p.PLANNING == 'none':
@@ -1381,59 +1270,6 @@ def main_loop(p):
                 # profiler = Profiler(function_name=p.getClothoids)
                 des_x_vec, des_y_vec, des_theta_vec, v_ol, omega_ol, plan_dt = p.getClothoids(long_vel=0.4, dt = 0.001)
                 #print(colored(f"Computation time per Clothoid call: {profiler.get_total_time()} seconds", "red"))
-
-            elif p.PLANNING == 'dubins':
-                des_x_vec, des_y_vec, des_z_vec, des_theta_vec, v_ol, omega_ol, plan_dt = p.getDubins(long_vel=0.3, omega=0.5, R_sphere=200, dt = 0.001)
-
-                # ===== Plot traiettoria Dubins 3D =====
-                fig1 = plt.figure()
-                ax1 = fig1.add_subplot(111, projection='3d')  # 3D plot
-
-                ax1.plot(des_x_vec, des_y_vec, des_z_vec)
-                ax1.set_title("Dubins trajectory 3D")
-                ax1.set_xlabel("x")
-                ax1.set_ylabel("y")
-                ax1.set_zlabel("z")
-                ax1.grid(True)
-
-                plt.show(block=False)
-
-                # ===== Plot v_des e omega_des =====
-                fig2, (ax_v, ax_omega) = plt.subplots(2, 1, sharex=True)
-
-                # Top: v_des (x = indice)
-                ax_v.plot(v_ol)
-                ax_v.set_title("v_des")
-                ax_v.set_ylabel("v")
-                ax_v.grid(True)
-
-                # Bottom: omega_des (x = indice)
-                ax_omega.plot(omega_ol)
-                ax_omega.set_title("omega_des")
-                ax_omega.set_xlabel("index")
-                ax_omega.set_ylabel("omega")
-                ax_omega.grid(True)
-
-                plt.show(block=False)
-
-                with open("dubins_output.txt", "w") as f:
-                    f.write(f"plan_dt = {plan_dt}\n\n")
-
-                    f.write("des_x_vec:\n")
-                    np.savetxt(f, des_x_vec)
-
-                    f.write("\ndes_y_vec:\n")
-                    np.savetxt(f, des_y_vec)
-
-                    f.write("\ndes_theta_vec:\n")
-                    np.savetxt(f, des_theta_vec)
-
-                    f.write("\nv_ol:\n")
-                    np.savetxt(f, v_ol)
-
-                    f.write("\nomega_ol:\n")
-                    np.savetxt(f, omega_ol)
-
             else:  # matlab planning
                 des_x_vec, des_y_vec, des_theta_vec, v_ol, omega_ol, plan_dt = p.getTrajFromMatlab()
             p.traj = Trajectory(None, des_x_vec, des_y_vec, des_theta_vec, None, DT=plan_dt, v=v_ol, omega=omega_ol)
@@ -1443,6 +1279,7 @@ def main_loop(p):
         p.controller = LyapunovController(params=params, robot_constants=constants)#, matlab_engine = p.eng)
         p.controller.setSideSlipCompensationType(p.SIDE_SLIP_COMPENSATION)
         p.controller.setSlippageInferenceType(p.SLIPPAGE_INFERENCE_TYPE)
+
         p.traj.set_initial_time(start_time=p.time)
         while not ros.is_shutdown():
             # update kinematics
