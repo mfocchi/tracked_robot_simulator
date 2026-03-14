@@ -137,13 +137,15 @@ class TrackedVehicleSimulator3D:
         w_omega = twist[3:]
 
         #projection of com on the ground level
-        pcom_on_ground = pc -self.consider_robot_height*self.w_com_height_vector
+        pcom_on_track_level = pc -self.consider_robot_height*self.w_com_height_vector
+
+        #NOTE: pg is the point on the ground correspondent to pcom_on_track_level  we want to compare with pcom_on_ground to see how much is the penetration
 
         #force is present only if there is linear penetration
         # print("pg", pg)
         # print("pcom_",pcom_on_ground)
-        if (self.terrain_normal.dot(pg - pcom_on_ground) > 0.0):
-            Fk = self.ground.Kt_x.dot(pg - pcom_on_ground)
+        if (self.terrain_normal.dot(pg - pcom_on_track_level) > 0.0):
+            Fk = self.ground.Kt_x.dot(pg - pcom_on_track_level)
             #only if it is approaching
             Fd = np.zeros(3)
             if (self.terrain_normal.dot(pc_d) < 0.0):
@@ -390,7 +392,7 @@ class TrackedVehicleSimulator3D:
     def initSimulation(self,pose_init =np.zeros(6),  twist_init=np.zeros(6), ros_pub = None):
         self.pose = pose_init
         self.twist = twist_init
-        if ros_pub is None:
+        if ros_pub is None and self.enable_visuals:
             self.ros_pub = RosPub('tractor', only_visual=True)
         else:
             self.ros_pub =ros_pub
@@ -426,15 +428,15 @@ class TrackedVehicleSimulator3D:
             b_Fg, b_Mg, b_eox, b_eoy  = self.computeGroundForcesMoments(self.pose, self.twist, w_R_b, pg, terrain_roll, terrain_pitch, terrain_yaw)
 
 
-        Fx_l, Fy_l, M_long_l, M_lat_l = self.tracked_robot.track_left.computeTerrainInteractions(state2D, omega_left, self.track_param,
+        self.Fx_l, self.Fy_l, M_long_l, M_lat_l = self.tracked_robot.track_left.computeTerrainInteractions(state2D, omega_left, self.track_param,
                                                                                    self.sigma_l, self.ground, self.patch_pos_long_l, self.patch_pos_lat_l)
-        Fx_r, Fy_r, M_long_r, M_lat_r= self.tracked_robot.track_right.computeTerrainInteractions(state2D, omega_right, self.track_param,
+        self.Fx_r, self.Fy_r, M_long_r, M_lat_r= self.tracked_robot.track_right.computeTerrainInteractions(state2D, omega_right, self.track_param,
                                                                                    self.sigma_r, self.ground, self.patch_pos_long_r, self.patch_pos_lat_r)
 
         if F_lg is not None:
-            Fx_l+=F_lg
+            self.Fx_l+=F_lg
         if F_rg is not None:
-            Fx_r += F_rg
+            self.Fx_r += F_rg
 
         if self.enable_visuals:
             # terrain normal
@@ -455,23 +457,23 @@ class TrackedVehicleSimulator3D:
             #update twist from dynamics
             if self.int_method=='FORWARD_EULER':
                 self.twist = forward_euler_step(self.dynamics3D, y=self.twist, h=self.dt,  w_R_b=w_R_b, b_Fg=b_Fg, b_Mg=b_Mg,
-                                  Fx_l=Fx_l, Fy_l=Fy_l, M_long_l=M_long_l, M_lat_l=M_lat_l, Fx_r=Fx_r, Fy_r=Fy_r,
+                                  Fx_l=self.Fx_l, Fy_l=self.Fy_l, M_long_l=M_long_l, M_lat_l=M_lat_l, Fx_r=self.Fx_r, Fy_r=self.Fy_r,
                                   M_long_r=M_long_r, M_lat_r=M_lat_r, vehicle_param=self.vehicle_param)
             elif self.int_method=='HEUN':
                 self.twist = heun_step(self.dynamics3D, y=self.twist, h=self.dt,  w_R_b=w_R_b, b_Fg=b_Fg, b_Mg=b_Mg,
-                                  Fx_l=Fx_l, Fy_l=Fy_l, M_long_l=M_long_l, M_lat_l=M_lat_l, Fx_r=Fx_r, Fy_r=Fy_r,
+                                  Fx_l=self.Fx_l, Fy_l=self.Fy_l, M_long_l=M_long_l, M_lat_l=M_lat_l, Fx_r=self.Fx_r, Fy_r=self.Fy_r,
                                   M_long_r=M_long_r, M_lat_r=M_lat_r, vehicle_param=self.vehicle_param)
             elif self.int_method=='RK4':
                 self.twist = RK4_step(self.dynamics3D, y=self.twist, h=self.dt,  w_R_b=w_R_b, b_Fg=b_Fg, b_Mg=b_Mg,
-                                  Fx_l=Fx_l, Fy_l=Fy_l, M_long_l=M_long_l, M_lat_l=M_lat_l, Fx_r=Fx_r, Fy_r=Fy_r,
+                                  Fx_l=self.Fx_l, Fy_l=self.Fy_l, M_long_l=M_long_l, M_lat_l=M_lat_l, Fx_r=self.Fx_r, Fy_r=self.Fy_r,
                                   M_long_r=M_long_r, M_lat_r=M_lat_r, vehicle_param=self.vehicle_param)
             elif self.int_method=='BACKWARD_EULER':
                 self.twist = backward_euler_step(self.dynamics3D, y=self.twist, h=self.dt,  w_R_b=w_R_b, b_Fg=b_Fg, b_Mg=b_Mg,
-                                  Fx_l=Fx_l, Fy_l=Fy_l, M_long_l=M_long_l, M_lat_l=M_lat_l, Fx_r=Fx_r, Fy_r=Fy_r,
+                                  Fx_l=self.Fx_l, Fy_l=self.Fy_l, M_long_l=M_long_l, M_lat_l=M_lat_l, Fx_r=self.Fx_r, Fy_r=self.Fy_r,
                                   M_long_r=M_long_r, M_lat_r=M_lat_r, vehicle_param=self.vehicle_param)
             elif self.int_method=='RK45F':
                 self.twist, self.dt = self.rk45F.step(x_k=self.twist, d_t=self.dt, w_R_b=w_R_b, b_Fg=b_Fg, b_Mg=b_Mg,
-                                  Fx_l=Fx_l, Fy_l=Fy_l, M_long_l=M_long_l, M_lat_l=M_lat_l, Fx_r=Fx_r, Fy_r=Fy_r,
+                                  Fx_l=self.Fx_l, Fy_l=self.Fy_l, M_long_l=M_long_l, M_lat_l=M_lat_l, Fx_r=self.Fx_r, Fy_r=self.Fy_r,
                                   M_long_r=M_long_r, M_lat_r=M_lat_r, vehicle_param=self.vehicle_param)
 
             else:
@@ -480,61 +482,8 @@ class TrackedVehicleSimulator3D:
         return b_eox, b_eoy
 
 
-    def computeTerramMechanicsOpenLoop(self, pg, terrain_roll, terrain_pitch, terrain_yaw, omega_left, omega_right):
-        # compute terrain variables
-        self.w_R_terr = self.math_utils.eul2Rot(np.array([terrain_roll, terrain_pitch, terrain_yaw]))
-        self.terrain_normal = self.w_R_terr[:, 2]
-
-        # compute base orientation
-        w_R_b = self.math_utils.eul2Rot(self.pose[3:])
-        # get states, they are the velocities in base frame b_v_c and the yaw rate
-        b_v_c = w_R_b.T.dot(self.twist[:3])
-        # project twist_ang_z onto w_z_b
-        b_omega = w_R_b[2].dot(np.array([0., 0., self.twist[5]]))
-        state2D = np.array([b_v_c[0], b_v_c[1], b_omega])
-        self.w_com_height_vector = w_R_b[:, 2] * self.vehicle_param.height
-
-        # compute ground peneration
-        if self.CONTACT_DISTRIBUTION:
-            b_Fg, b_Mg, b_eox, b_eoy, w_Fg_patch_l, w_Fg_patch_r = self.computeDistributedGroundForcesMoments(
-                self.pose, self.twist, w_R_b, terrain_roll, terrain_pitch, terrain_yaw)
-            patch_counter = 0
-            number_of_patches = self.track_param.parts_lateral * self.track_param.parts_longitudinal
-            patch_area = self.track_param.A / number_of_patches
-
-            # compute patch positions and twists in world frame
-            for i in range(self.track_param.parts_longitudinal):
-                for j in range(self.track_param.parts_lateral):
-                    self.sigma_l[i, j] = w_R_b.T.dot(w_Fg_patch_l[patch_counter, :])[2] / patch_area
-                    self.sigma_r[i, j] = w_R_b.T.dot(w_Fg_patch_r[patch_counter, :])[2] / patch_area
-                    patch_counter += 1
-        else:
-            b_Fg, b_Mg, b_eox, b_eoy = self.computeGroundForcesMoments(self.pose, self.twist, w_R_b, pg,
-                                                                       terrain_roll, terrain_pitch, terrain_yaw)
-
-        Fx_l, Fy_l, M_long_l, M_lat_l = self.tracked_robot.track_left.computeTerrainInteractions(state2D,
-                                                                                                 omega_left,
-                                                                                                 self.track_param,
-                                                                                                 self.sigma_l,
-                                                                                                 self.ground,
-                                                                                                 self.patch_pos_long_l,
-                                                                                                 self.patch_pos_lat_l)
-        Fx_r, Fy_r, M_long_r, M_lat_r = self.tracked_robot.track_right.computeTerrainInteractions(state2D,
-                                                                                                  omega_right,
-                                                                                                  self.track_param,
-                                                                                                  self.sigma_r,
-                                                                                                  self.ground,
-                                                                                                  self.patch_pos_long_r,
-                                                                                                  self.patch_pos_lat_r)
-
-        # compute traction forces and moments
-        b_Ft = np.zeros(3)
-        b_Ft[0] = Fx_l + Fx_r
-        b_Ft[1] = Fy_l + Fy_r
-        b_Mt = np.zeros(3)
-        b_Mt[2] = M_long_l + M_lat_l + M_long_r + M_lat_r
-
-        return Fx_l, Fx_r, Fy_l, Fy_r
+    def getTerramechanicsInteractions(self):
+        return self.Fx_l, self.Fx_r, self.Fy_l, self.Fy_r
 
     def computeZcomponent(self, x, y, pitch):
         #important x should start from 0!
