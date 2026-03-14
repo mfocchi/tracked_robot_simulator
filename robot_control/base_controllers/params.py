@@ -12,9 +12,9 @@ robot_params = {}
 
 
 robot_params['tractor'] ={'dt': 0.001,
-                        'kp': np.array([100.,   100.,    100.,  100.]),
-                        'kd':  np.array([10.,    10.,    10.,   10.  ]),
-                        'q_0':  np.array([0, 0, 0, 0]),
+                        'kp': np.array([100.,   100.]),
+                        'kd':  np.array([10.,    10.]),
+                        'q_0':  np.array([0, 0 ]),
                         'joint_names': ['front_left_wheel_joint', 'front_right_wheel_joint'], # caster wheels are passive joints
                         'ee_frames': ['front_left_wheel', 'front_right_wheel'],
                         'spawn_x': -0.,
