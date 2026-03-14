@@ -356,7 +356,7 @@ class GenericSimulator(BaseController):
             TOL=1.0,
             dT=1.0,
             t0=0.0,
-            tf=p.PLANNING_DURATION,
+            tf=self.PLANNING_DURATION,
             convex_hull_contact=True,
         )
 
