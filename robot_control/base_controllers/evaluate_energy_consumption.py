@@ -53,7 +53,7 @@ def initVars(self):
     self.log_counter = 0
     self.des_x = 0.
     self.des_y = 0.
-    self.des_theta = 0.
+    self.des_yaw = 0.
     self.beta_l= 0.
     self.beta_r= 0.
     self.alpha= 0.
@@ -74,7 +74,7 @@ def initVars(self):
     self.alpha_log = np.empty((conf.robot_params[self.robot_name]['buffer_size'])) * nan
     self.des_x_vec = np.empty(1)
     self.des_y_vec = np.empty(1)
-    self.des_theta_vec = np.empty(1)
+    self.des_yaw_vec = np.empty(1)
 
 def plotData(self):
     # xy plot
@@ -104,7 +104,7 @@ def logData(self):
     if (self.log_counter<conf.robot_params[self.robot_name]['buffer_size'] ):
         self.des_state_log[0, self.log_counter] = self.des_x
         self.des_state_log[1, self.log_counter] = self.des_y
-        self.des_state_log[2, self.log_counter] = self.des_theta
+        self.des_state_log[2, self.log_counter] = self.des_yaw
         self.state_log[0, self.log_counter] = self.basePoseW[self.u.sp_crd["LX"]]
         self.state_log[1, self.log_counter] = self.basePoseW[self.u.sp_crd["LY"]]
         self.state_log[2, self.log_counter] =  self.basePoseW[self.u.sp_crd["AZ"]]
@@ -185,17 +185,17 @@ if __name__ == '__main__':
     #compute COST (all the next code should be REAPEATED for any cost computation TODO)
     initVars(p)
     #plan trajectory with chomp (discretized with plant_dt = 1s)
-    p.des_x_vec, p.des_y_vec, p.des_theta_vec, v_ol, omega_ol, p.plan_dt = p.getChomp(p.p0, p.pf)
+    p.des_x_vec, p.des_y_vec, p.des_yaw_vec, v_ol, omega_ol, p.plan_dt = p.getChomp(p.p0, p.pf)
     # IMPORTANT need to override p0[2] pf[2] because I cannot optimize for orientation
-    p.p0[2] = p.des_theta_vec[0]
-    p.pf[2] = p.des_theta_vec[-1]
+    p.p0[2] = p.des_yaw_vec[0]
+    p.pf[2] = p.des_yaw_vec[-1]
 
     if p.DEBUG:
         p.plotChompTraj(p.des_x_vec, p.des_y_vec)
         p.ros_pub.publishVisual(delete_markers=False)
 
     #set the traj class with chomp output, the traj class with just enable to interpolate chomp samples on a filer grid
-    p.traj = Trajectory(None, p.des_x_vec, p.des_y_vec, p.des_theta_vec, None, DT=p.plan_dt, v=v_ol, omega=omega_ol)
+    p.traj = Trajectory(None, p.des_x_vec, p.des_y_vec, p.des_yaw_vec, None, DT=p.plan_dt, v=v_ol, omega=omega_ol)
     traj_length = len(v_ol)
     p.traj.set_initial_time(start_time=p.time)
     #initialize basePose and sim states to p0 configuration
@@ -205,7 +205,7 @@ if __name__ == '__main__':
     while not  ros.is_shutdown():
 
         #get single sample point interpolated from traj with dt = 0.001
-        p.des_x, p.des_y, p.des_theta, p.v_d, p.omega_d, p.v_dot_d, p.omega_dot_d, traj_finished = p.traj.evalTraj(p.time)
+        p.des_x, p.des_y, p.des_yaw, p.v_d, p.omega_d, p.v_dot_d, p.omega_dot_d, traj_finished = p.traj.evalTraj(p.time)
         if traj_finished:
             print(f"Energy: {C}")
             break
@@ -222,7 +222,8 @@ if __name__ == '__main__':
         pg, terrain_roll, terrain_pitch = p.terrainManager.project_on_mesh(point=p.basePoseW[:2], direction=np.array([0., 0., 1.]), base_yaw=p.basePoseW[5])
         # terrain yaw is determined by the robot orientation!
         terrain_yaw = p.basePoseW[5]
-        pose_des, terrain_roll_des, terrain_pitch_des = p.terrainManager.project_on_mesh(point=np.array([p.des_x, p.des_y]), direction=np.array([0., 0., 1.]), base_yaw=p.basePoseW[5])
+        pose_des, terrain_roll_des, terrain_pitch_des = p.terrainManager.project_on_mesh(point=np.array([p.des_x, p.des_y]), direction=np.array([0., 0., 1.]), base_yaw=p.des_yaw)
+        #optional compute normal just for debug
         w_R_terr = p.math_utils.eul2Rot(np.array([terrain_roll, terrain_pitch, terrain_yaw]))
         w_normal = w_R_terr.dot(np.array([0, 0, 1]))
         # pg is the point on ground correspondent to pcom_on_track_level
@@ -231,10 +232,10 @@ if __name__ == '__main__':
         #update quaternions
         p.euler = p.u.angPart(p.basePoseW)
         p.quaternion = pin.Quaternion(pin.rpy.rpyToMatrix(p.euler))
-        p.b_R_w = p.math_utils.eul2Rot(p.euler).T
+        #p.b_R_w = p.math_utils.eul2Rot(p.euler).T
         # shift up  of robot height along Zb component
         pose_des += p.tracked_vehicle_simulator.consider_robot_height * p.tracked_vehicle_simulator.w_com_height_vector
-        p.basePoseW_des = np.concatenate((pose_des, np.array([terrain_roll_des, terrain_pitch_des, p.des_theta])))
+        p.basePoseW_des = np.concatenate((pose_des, np.array([terrain_roll_des, terrain_pitch_des, p.des_yaw])))
 
         if p.DEBUG:
             p.now = ros.Time.from_sec(p.time)
@@ -248,7 +249,8 @@ if __name__ == '__main__':
         p.beta_l, p.beta_r, p.alpha, _, b_vel_xy = p.estimateSlippages(p.baseTwistW, p.basePoseW[p.u.sp_crd["AZ"]], p.qd_des)
 
         #update energy consumption for this sample of the trajectory
-        C += Fx_l * p.beta_l + Fx_r * p.beta_r  +  Fy_l* b_vel_xy[1] + Fy_r* b_vel_xy[1]
+        b_v_y = b_vel_xy[1]
+        C += Fx_l * p.beta_l + Fx_r * p.beta_r  +  Fy_l*b_v_y  + Fy_r*b_v_y
 
         if np.mod(p.time,1) == 0:
             print(colored(f"TIME: {p.time}","red"))
