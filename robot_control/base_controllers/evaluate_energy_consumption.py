@@ -149,6 +149,92 @@ def initializeSimulation(self):
     self.basePoseW = np.copy(self.terrain_consistent_pose_init)
     self.baseTwistW = np.zeros(6)
 
+
+def computeCost(p, des_x_vec, des_y_vec, des_yaw_vec, v_ol, omega_ol, plan_dt):
+    # compute COST (all the next code should be REAPEATED for any cost computation TODO)
+    initVars(p)
+
+    p.des_x_vec = des_x_vec
+    p.des_y_vec = des_y_vec
+    p.des_yaw_vec = des_yaw_vec
+    # IMPORTANT need to override p0[2] pf[2] because I cannot optimize for orientation
+    p.p0[2] = p.des_yaw_vec[0]
+    p.pf[2] = p.des_yaw_vec[-1]
+
+    if p.DEBUG:
+        p.plotChompTraj(p.des_x_vec, p.des_y_vec)
+        p.ros_pub.publishVisual(delete_markers=False)
+
+    # set the traj class with chomp output, the traj class with just enable to interpolate chomp samples on a filer grid
+    p.traj = Trajectory(None, des_x_vec, des_y_vec, des_yaw_vec, None, DT=plan_dt, v=v_ol, omega=omega_ol)
+    traj_length = len(v_ol)
+    p.traj.set_initial_time(start_time=p.time)
+    # initialize basePose and sim states to p0 configuration
+    initializeSimulation(p)
+    # initialize traj cost
+    C = 0
+    while not ros.is_shutdown():
+
+        # get single sample point interpolated from traj with dt = 0.001
+        p.des_x, p.des_y, p.des_yaw, p.v_d, p.omega_d, p.v_dot_d, p.omega_dot_d, traj_finished = p.traj.evalTraj(p.time)
+        if traj_finished:
+            print(f"Energy: {C}")
+            break
+
+        # need to map p.v_d, p.omega_d that are in XY plane into the moving  base frame (Frenet frame)
+        p.b_v_d, p.b_omega_d = mapFromWorldFrameToBaseFrame(p.v_d, p.omega_d, p.basePoseW[3:])
+
+        # map long vel and omega into wheel speeds
+        p.qd_des = mapToWheels(p.b_v_d, p.b_omega_d)
+        # compute wheel positions (for debug)
+        p.q_des = p.q_des + p.qd_des * conf.robot_params[p.robot_name]['dt']
+
+        # update  kinematic variables with forward simulation step
+        pg, terrain_roll, terrain_pitch = p.terrainManager.project_on_mesh(point=p.basePoseW[:2], direction=np.array([0., 0., 1.]), base_yaw=p.basePoseW[5])
+        # terrain yaw is determined by the robot orientation!
+        terrain_yaw = p.basePoseW[5]
+        pose_des, terrain_roll_des, terrain_pitch_des = p.terrainManager.project_on_mesh(point=np.array([p.des_x, p.des_y]), direction=np.array([0., 0., 1.]), base_yaw=p.des_yaw)
+        # optional compute normal just for debug
+        w_R_terr = p.math_utils.eul2Rot(np.array([terrain_roll, terrain_pitch, terrain_yaw]))
+        w_normal = w_R_terr.dot(np.array([0, 0, 1]))
+        # pg is the point on ground correspondent to pcom_on_track_level
+        p.tracked_vehicle_simulator.simulateOneStep(pg, terrain_roll, terrain_pitch, terrain_yaw, p.qd_des[0], p.qd_des[1])
+        p.basePoseW, p.baseTwistW = p.tracked_vehicle_simulator.getRobotState()
+        # update quaternions
+        p.euler = p.u.angPart(p.basePoseW)
+        p.quaternion = pin.Quaternion(pin.rpy.rpyToMatrix(p.euler))
+        # p.b_R_w = p.math_utils.eul2Rot(p.euler).T
+        # shift up  of robot height along Zb component
+        pose_des += p.tracked_vehicle_simulator.consider_robot_height * p.tracked_vehicle_simulator.w_com_height_vector
+        p.basePoseW_des = np.concatenate((pose_des, np.array([terrain_roll_des, terrain_pitch_des, p.des_yaw])))
+
+        if p.DEBUG:
+            p.now = ros.Time.from_sec(p.time)
+            # p.clock_pub.publish(Clock(clock=p.now))
+            p.broadcaster.sendTransform(p.u.linPart(p.basePoseW), p.quaternion, p.now, '/base_link', '/world')
+
+        # retrieve terra-mechanics interactions from last dynamics update
+        Fx_l, Fx_r, Fy_l, Fy_r = p.tracked_vehicle_simulator.getTerramechanicsInteractions()
+
+        # estimate slippages using long vel and omega (in base frame) and  wheel speeds
+        p.beta_l, p.beta_r, p.alpha, _, b_vel_xy = p.estimateSlippages(p.baseTwistW, p.basePoseW[p.u.sp_crd["AZ"]], p.qd_des)
+
+        # update energy consumption for this sample of the trajectory
+        b_v_y = b_vel_xy[1]
+        C += Fx_l * p.beta_l + Fx_r * p.beta_r + Fy_l * b_v_y + Fy_r * b_v_y
+
+        if np.mod(p.time, 1) == 0:
+            print(colored(f"TIME: {p.time}", "red"))
+        # log variables
+        if p.DEBUG:
+            logData(p)
+        # update the time (needed for the evaluation of the trajectory that needs to be interpolated with finer grid beetween samples)
+        p.time = np.round(p.time + np.array([conf.robot_params[p.robot_name]['dt']]), 4)  # to avoid issues of dt 0.0009999
+
+    if p.DEBUG:
+        plotData(p)
+
+
 if __name__ == '__main__':
     #prologue (do only once)
     p = GenericSimulator(robotName)
@@ -191,86 +277,10 @@ if __name__ == '__main__':
         ros.sleep(1.)
     #finish of the plologue
 
+    #unit test: compute cost with one trajectory
+    # plan trajectory with chomp (discretized with plant_dt = 1s)
+    des_x_vec, des_y_vec, des_yaw_vec, v_ol, omega_ol, p.plan_dt = p.getChomp(p.p0, p.pf)
+    computeCost(p, des_x_vec, des_y_vec, des_yaw_vec, v_ol, omega_ol, p.plan_dt)
 
 
-    #compute COST (all the next code should be REAPEATED for any cost computation TODO)
-    initVars(p)
-    #plan trajectory with chomp (discretized with plant_dt = 1s)
-    p.des_x_vec, p.des_y_vec, p.des_yaw_vec, v_ol, omega_ol, p.plan_dt = p.getChomp(p.p0, p.pf)
-    # IMPORTANT need to override p0[2] pf[2] because I cannot optimize for orientation
-    p.p0[2] = p.des_yaw_vec[0]
-    p.pf[2] = p.des_yaw_vec[-1]
-
-    if p.DEBUG:
-        p.plotChompTraj(p.des_x_vec, p.des_y_vec)
-        p.ros_pub.publishVisual(delete_markers=False)
-
-    #set the traj class with chomp output, the traj class with just enable to interpolate chomp samples on a filer grid
-    p.traj = Trajectory(None, p.des_x_vec, p.des_y_vec, p.des_yaw_vec, None, DT=p.plan_dt, v=v_ol, omega=omega_ol)
-    traj_length = len(v_ol)
-    p.traj.set_initial_time(start_time=p.time)
-    #initialize basePose and sim states to p0 configuration
-    initializeSimulation(p)
-    #initialize traj cost
-    C = 0
-    while not  ros.is_shutdown():
-
-        #get single sample point interpolated from traj with dt = 0.001
-        p.des_x, p.des_y, p.des_yaw, p.v_d, p.omega_d, p.v_dot_d, p.omega_dot_d, traj_finished = p.traj.evalTraj(p.time)
-        if traj_finished:
-            print(f"Energy: {C}")
-            break
-
-        # need to map p.v_d, p.omega_d that are in XY plane into the moving  base frame (Frenet frame)
-        p.b_v_d, p.b_omega_d = mapFromWorldFrameToBaseFrame(p.v_d, p.omega_d, p.basePoseW[3:])
-
-        #map long vel and omega into wheel speeds
-        p.qd_des = mapToWheels(p.b_v_d, p.b_omega_d )
-        #compute wheel positions (for debug)
-        p.q_des = p.q_des + p.qd_des * conf.robot_params[p.robot_name]['dt']
-
-        # update  kinematic variables with forward simulation step
-        pg, terrain_roll, terrain_pitch = p.terrainManager.project_on_mesh(point=p.basePoseW[:2], direction=np.array([0., 0., 1.]), base_yaw=p.basePoseW[5])
-        # terrain yaw is determined by the robot orientation!
-        terrain_yaw = p.basePoseW[5]
-        pose_des, terrain_roll_des, terrain_pitch_des = p.terrainManager.project_on_mesh(point=np.array([p.des_x, p.des_y]), direction=np.array([0., 0., 1.]), base_yaw=p.des_yaw)
-        #optional compute normal just for debug
-        w_R_terr = p.math_utils.eul2Rot(np.array([terrain_roll, terrain_pitch, terrain_yaw]))
-        w_normal = w_R_terr.dot(np.array([0, 0, 1]))
-        # pg is the point on ground correspondent to pcom_on_track_level
-        p.tracked_vehicle_simulator.simulateOneStep(pg, terrain_roll, terrain_pitch, terrain_yaw, p.qd_des[0], p.qd_des[1])
-        p.basePoseW, p.baseTwistW = p.tracked_vehicle_simulator.getRobotState()
-        #update quaternions
-        p.euler = p.u.angPart(p.basePoseW)
-        p.quaternion = pin.Quaternion(pin.rpy.rpyToMatrix(p.euler))
-        #p.b_R_w = p.math_utils.eul2Rot(p.euler).T
-        # shift up  of robot height along Zb component
-        pose_des += p.tracked_vehicle_simulator.consider_robot_height * p.tracked_vehicle_simulator.w_com_height_vector
-        p.basePoseW_des = np.concatenate((pose_des, np.array([terrain_roll_des, terrain_pitch_des, p.des_yaw])))
-
-        if p.DEBUG:
-            p.now = ros.Time.from_sec(p.time)
-            #p.clock_pub.publish(Clock(clock=p.now))
-            p.broadcaster.sendTransform(p.u.linPart(p.basePoseW), p.quaternion, p.now, '/base_link', '/world')
-
-        #retrieve terra-mechanics interactions from last dynamics update
-        Fx_l, Fx_r, Fy_l, Fy_r = p.tracked_vehicle_simulator.getTerramechanicsInteractions()
-
-        #estimate slippages using long vel and omega (in base frame) and  wheel speeds
-        p.beta_l, p.beta_r, p.alpha, _, b_vel_xy = p.estimateSlippages(p.baseTwistW, p.basePoseW[p.u.sp_crd["AZ"]], p.qd_des)
-
-        #update energy consumption for this sample of the trajectory
-        b_v_y = b_vel_xy[1]
-        C += Fx_l * p.beta_l + Fx_r * p.beta_r  +  Fy_l*b_v_y  + Fy_r*b_v_y
-
-        if np.mod(p.time,1) == 0:
-            print(colored(f"TIME: {p.time}","red"))
-        # log variables
-        if p.DEBUG:
-            logData(p)
-        #update the time (needed for the evaluation of the trajectory that needs to be interpolated with finer grid beetween samples)
-        p.time = np.round(p.time + np.array([conf.robot_params[p.robot_name]['dt']]), 4)  # to avoid issues of dt 0.0009999
-
-    if p.DEBUG:
-        plotData(p)
 
