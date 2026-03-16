@@ -84,10 +84,10 @@ if __name__ == "__main__":
     yL_m_des = 10.0
 
     #meter to world_unit
-    sx = xL_m_des / xL_world
-    sy = yL_m_des / yL_world
+    ch.sx = xL_m_des / xL_world
+    ch.sy = yL_m_des / yL_world
     import rospkg
-    ch.obstacles_to_stl_scaled(obstacles, rospkg.RosPack().get_path('tractor_description') + '/meshes/obstacles.stl', height_m=2.0, sx=sx, sy=sy)
+    ch.obstacles_to_stl_scaled(obstacles, rospkg.RosPack().get_path('tractor_description') + '/meshes/obstacles.stl', height_m=2.0, sx=ch.sx, sy=ch.sy)
 
     # --------------------------------
     # 2) Robot + CHOMP parameters
@@ -133,8 +133,8 @@ if __name__ == "__main__":
 
     #map to meters
     optimized_xi_meters = optimized_xi.copy()
-    optimized_xi_meters[:, 0] *= sx
-    optimized_xi_meters[:, 1] *= sy
+    optimized_xi_meters[:, 0] *= ch.sx
+    optimized_xi_meters[:, 1] *= ch.sy
 
     #compute velocities
     dx = np.diff(optimized_xi_meters[:, 0])
