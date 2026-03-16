@@ -28,13 +28,24 @@ robotName = "tractor" # needs to inherit BaseController
 
 
 def mapFromWorldFrameToBaseFrame(v_des, omega_des, euler):
+    #new way
     w_R_b = p.math_utils.eul2Rot(euler)
-    hf_R_b = p.math_utils.eul2Rot(np.array([euler[0],euler[1], 0.]))
+    hf_R_b = p.math_utils.eul2Rot(np.array([euler[0], euler[1], 0.]))
     # project v_des which is in Horizontal frame onto hf_x_b
-    b_v_des = hf_R_b[0].dot(np.array([v_des, 0., 0.]))
-    # project omega_des which is in WF  onto w_z_b
-    b_omega_des = w_R_b[2].dot(np.array([0., 0.,omega_des]))
-    return b_v_des, b_omega_des
+    v_cos_angle = hf_R_b[0].dot(np.array([1., 0., 0.]))
+    b_v_des_x = v_des / v_cos_angle
+    omega_cos_angle = w_R_b[2].dot(np.array([0., 0., 1.]))
+    b_omega_des = omega_des / omega_cos_angle
+
+    #old way
+    # w_R_b = p.math_utils.eul2Rot(euler)
+    # hf_R_b = p.math_utils.eul2Rot(np.array([euler[0],euler[1], 0.]))
+    # # project v_des which is in Horizontal frame onto hf_x_b
+    # b_v_des_x = hf_R_b[0].dot(np.array([v_des, 0., 0.]))
+    # # project omega_des which is in WF  onto w_z_b
+    # b_omega_des = w_R_b[2].dot(np.array([0., 0.,omega_des]))
+
+    return b_v_des_x, b_omega_des
 
 def   mapToWheels(v_des,omega_des):
     # assumes v_des,omega_des in base_frame
@@ -143,7 +154,7 @@ if __name__ == '__main__':
     p = GenericSimulator(robotName)
     p.DEBUG = True
 
-    p.friction_coefficient = 0.6  # 0.1 (used only in 2d) / 0.4 (2d and 3d) (used for planning in paper)/ 0.6 (only 3d)  with slopes we need high friction otherwise alpha is too high
+    p.friction_coefficient = 0.4  # 0.1 (used only in 2d) / 0.4 (2d and 3d) (used for planning in paper)/ 0.6 (only 3d)  with slopes we need high friction otherwise alpha is too high
     # initial pose
     p.p0 = np.array([0., 0., 0.])
     #final pose
