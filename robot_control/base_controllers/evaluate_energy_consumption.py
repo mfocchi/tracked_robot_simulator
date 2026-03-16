@@ -234,8 +234,8 @@ def computeCost(p, des_x_vec, des_y_vec, des_yaw_vec, v_ol, omega_ol, plan_dt):
     if p.DEBUG:
         plotData(p)
 
+def initializeEnergyComputation():
 
-if __name__ == '__main__':
     #prologue (do only once)
     p = GenericSimulator(robotName)
     p.DEBUG = True
@@ -277,6 +277,10 @@ if __name__ == '__main__':
         ros.sleep(1.)
     #finish of the plologue
 
+    return p
+
+if __name__ == '__main__':
+    p = initializeEnergyComputation()
     #unit test: compute cost with one trajectory
     # plan trajectory with chomp (discretized with plant_dt = 1s)
     des_x_vec, des_y_vec, des_yaw_vec, v_ol, omega_ol, p.plan_dt = p.getChomp(p.p0, p.pf)
