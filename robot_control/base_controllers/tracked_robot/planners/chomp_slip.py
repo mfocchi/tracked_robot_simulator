@@ -3,12 +3,13 @@ import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from chomp_no_theta import Params, ChompSolver
-from base_controllers.evaluate_energy_consumption  import initializeEnergyComputation, computeCost
+from base_controllers.evaluate_energy_consumption  import EvaluateEnergyConsumption
+robotName = "tractor" # needs to inherit BaseController
 
 class ChompSolverSlip(ChompSolver):
     def __init__(self, task_name='slip'):
         super().__init__(task_name=task_name)
-        self.p = initializeEnergyComputation()
+        self.evaluateEnergyConsumption = EvaluateEnergyConsumption(robotName)
 
     def chompFslip(self, xi, robot, M, dt, DOF):
         """
@@ -44,12 +45,15 @@ class ChompSolverSlip(ChompSolver):
         v_des = np.hypot(dx, dy) / dt
         omega_des = dtheta / dt
 
-        Fslip_cost = computeCost(self.p, xi_meters[:, 0], xi_meters[:, 1], xi_meters[:, 2], v_des, omega_des, dt)
+        Fslip_cost = self.evaluateEnergyConsumption.computeCost(xi_meters[:, 0], xi_meters[:, 1], xi_meters[:, 2], v_des, omega_des, dt)
 
         print(Fslip_cost)
+
+
         import sys
         sys.exit()
-        #### TODO gradient computation
+        #### TODO gradient computation computing cost multiple times
+
         # flatten to vector with MATLAB-style column-major ordering nabla_Fobs(:)
         nabla_Fslip_vec = nabla_Fslip.flatten(order='F')  # 1D array length of dimension 3(N-2)
 
@@ -71,6 +75,7 @@ if __name__ == "__main__":
          "Y": np.array([50, 50, 150, 150])},
         {"X": np.array([200, 300, 250]),
          "Y": np.array([300, 300, 400])}, ]
+
     #map origin
     xRange = np.array([0.0, 500.0])
     yRange = np.array([0.0, 500.0])
