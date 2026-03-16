@@ -171,13 +171,13 @@ def computeCost(p, des_x_vec, des_y_vec, des_yaw_vec, v_ol, omega_ol, plan_dt):
     # initialize basePose and sim states to p0 configuration
     initializeSimulation(p)
     # initialize traj cost
-    C = 0
+    Cost = 0
     while not ros.is_shutdown():
 
         # get single sample point interpolated from traj with dt = 0.001
         p.des_x, p.des_y, p.des_yaw, p.v_d, p.omega_d, p.v_dot_d, p.omega_dot_d, traj_finished = p.traj.evalTraj(p.time)
         if traj_finished:
-            print(f"Energy: {C}")
+            print(f"Energy: {Cost}")
             break
 
         # need to map p.v_d, p.omega_d that are in XY plane into the moving  base frame (Frenet frame)
@@ -220,7 +220,7 @@ def computeCost(p, des_x_vec, des_y_vec, des_yaw_vec, v_ol, omega_ol, plan_dt):
 
         # update energy consumption for this sample of the trajectory
         b_v_y = b_vel_xy[1]
-        C += Fx_l * p.beta_l + Fx_r * p.beta_r + Fy_l * b_v_y + Fy_r * b_v_y
+        Cost += Fx_l * p.beta_l + Fx_r * p.beta_r + Fy_l * b_v_y + Fy_r * b_v_y
 
         if np.mod(p.time, 1) == 0:
             print(colored(f"TIME: {p.time}", "red"))
@@ -232,6 +232,8 @@ def computeCost(p, des_x_vec, des_y_vec, des_yaw_vec, v_ol, omega_ol, plan_dt):
 
     if p.DEBUG:
         plotData(p)
+
+    return Cost
 
 def initializeEnergyComputation():
 
