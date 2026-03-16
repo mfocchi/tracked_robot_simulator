@@ -9,7 +9,7 @@ from scipy.ndimage import distance_transform_edt
 from matplotlib.path import Path
 from scipy import sparse
 np.set_printoptions(threshold=np.inf, precision = 5, linewidth = 10000, suppress = True)
-import math
+
 
 @dataclass
 class Params:
@@ -306,48 +306,6 @@ class ChompSolver:
                 Fsmooth_cost)
 
 
-    def chompFSlip(self, xi, computeCost, dt, DOF):
-        """
-        Inputs:
-          xi: (N x 3) array of [x, y, theta]
-
-          dt: timestep (float)
-          DOF: degrees of freedom (int, typically 3)
-
-        Outputs:
-          nabla_Fslip_vec: 1D numpy array of length DOF*(N-2), column-major stacked (MATLAB's nabla_Fobs(:))
-          Fslip_cost: scalar
-        """
-        #initialize arrays
-        N = xi.shape[0]
-        # N-2 x DOF matrix (internal timesteps only)
-        nabla_Fslip = np.zeros((N - 2, DOF), dtype=float)
-        Fslip_cost = 0.0
-
-        # map to meters
-        xi_meters = xi.copy()
-        xi_meters[:, 0] *= self.sx
-        xi_meters[:, 1] *= self.sy
-        # compute velocities
-        dx = np.diff(xi_meters[:, 0])
-        dy = np.diff(xi_meters[:, 1])
-        dtheta = np.diff(np.unwrap(xi_meters[:, 2]))
-
-        # append last value to keep same length N of optimized_xi_meters
-        dx = np.append(dx, dx[-1])
-        dy = np.append(dy, dy[-1])
-        dtheta = np.append(dtheta, dtheta[-1])
-        v_des = np.hypot(dx, dy) / params.dT
-        omega_des = dtheta / params.dT
-
-        Fslip_cost = computeCost(xi_meters, )
-
-
-        #### TODO gradient computation
-        # flatten to vector with MATLAB-style column-major ordering nabla_Fobs(:)
-        nabla_Fslip_vec = nabla_Fslip.flatten(order='F')  # 1D array length of dimension 3(N-2)
-
-        return nabla_Fslip_vec, Fslip_cost
 
     def chompFobs(self, xi, robot, M, dt, DOF):
         """
@@ -957,7 +915,7 @@ if __name__ == "__main__":
     # q_goal  = np.array([400.0, 100.0, theta0])
 
 
-    params = Params(
+    chomp_params = Params(
         DOF=2,
         lambda_=200.0,
         eta=0.001,
@@ -975,17 +933,17 @@ if __name__ == "__main__":
     h = 40.0
     X = np.array([-w / 2, w / 2, w / 2, -w / 2], dtype=float)
     Y = np.array([-h / 2, -h / 2, h / 2, h / 2], dtype=float)
-    robot = ch.createRobot(X, Y, q_start, M, params.convex_hull_contact)
+    robot = ch.createRobot(X, Y, q_start, M, chomp_params.convex_hull_contact)
 
     # --------------------------------
     # 3) Initial straight-line trajectory
     # --------------------------------
-    T = int(params.tf / params.dT)
+    T = int(chomp_params.tf / chomp_params.dT)
     xi0 = np.zeros((T, 2), dtype=float)
     xi0[:, 0] = np.linspace(q_start[0], q_goal[0], T)
     xi0[:, 1] = np.linspace(q_start[1], q_goal[1], T)
 
-    optimized_xi = ch.optimize(xi0, M, params, robot)
+    optimized_xi = ch.optimize(xi0, M, chomp_params, robot)
 
     #map to meters
     optimized_xi_meters = optimized_xi.copy()
@@ -996,8 +954,8 @@ if __name__ == "__main__":
     dx = np.diff(optimized_xi_meters[:, 0])
     dy = np.diff(optimized_xi_meters[:, 1])
     dtheta = np.diff(np.unwrap(optimized_xi_meters[:, 2]))
-    v = np.hypot(dx, dy)/ params.dT
-    omega = dtheta/ params.dT
+    v = np.hypot(dx, dy)/ chomp_params.dT
+    omega = dtheta/ chomp_params.dT
 
     # append last value to keep same length N of optimized_xi_meters
     dx = np.append(dx, dx[-1])
