@@ -11,7 +11,7 @@ from base_controllers.utils.math_tools import *
 np.set_printoptions(threshold=np.inf, precision = 5, linewidth = 1000, suppress = True)
 from base_controllers.base_controller import BaseController
 from base_controllers.utils.common_functions import plotFrameLinear, plotFrame,  plotJoint, sendStaticTransform, launchFileGeneric
-import params as conf
+import base_controllers.params as conf
 import os
 import sys
 import rospkg

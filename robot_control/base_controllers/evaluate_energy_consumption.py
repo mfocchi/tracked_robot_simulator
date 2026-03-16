@@ -5,14 +5,13 @@ Created on Fri Nov  2 16:52:08 2018
 @author: mfocchi
 """
 
-from __future__ import print_function
 import rospy as ros
 from base_controllers.utils.math_tools import *
 np.set_printoptions(threshold=np.inf, precision = 5, linewidth = 1000, suppress = True)
 from base_controllers.utils.common_functions import plotFrameLinear, plotFrame,  plotJoint, sendStaticTransform, launchFileGeneric
 from base_controllers.utils.ros_publish import RosPub
 from  base_controllers.tracked_robot.utils import maxxi_constants as constants
-import params as conf
+import base_controllers.params as conf
 from numpy import nan
 import rospkg
 from  base_controllers.tracked_robot.environment.trajectory import Trajectory
@@ -21,7 +20,7 @@ import numpy as np
 import pinocchio as pin
 from base_controllers.open_loop_simulation3d import  TrackedVehicleSimulator3D, Ground3D
 from base_controllers.tracked_robot.simulator.terrain_manager import TerrainManager
-from closed_loop_simulation_chen import GenericSimulator
+from base_controllers.closed_loop_simulation_chen import GenericSimulator
 from base_controllers.utils.common_functions import SafeTFBroadcaster, checkRosMaster
 from matplotlib import pyplot as plt
 robotName = "tractor" # needs to inherit BaseController
