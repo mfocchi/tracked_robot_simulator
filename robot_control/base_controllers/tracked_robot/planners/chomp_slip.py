@@ -6,10 +6,11 @@ from chomp_no_theta import Params, ChompSolver
 from base_controllers.evaluate_energy_consumption  import initializeEnergyComputation, computeCost
 
 class ChompSolverSlip(ChompSolver):
-    def __init__(self):
-        pass
+    def __init__(self, task_name='slip'):
+        super().__init__(task_name=task_name)
+        self.p = initializeEnergyComputation()
 
-    def chompFSlip(self, xi, computeCost, dt, DOF):
+    def chompFslip(self, xi, robot, M, dt, DOF):
         """
         Inputs:
           xi: (N x 3) array of [x, y, theta]
@@ -27,7 +28,7 @@ class ChompSolverSlip(ChompSolver):
         nabla_Fslip = np.zeros((N - 2, DOF), dtype=float)
         Fslip_cost = 0.0
 
-        # map to meters
+        # map xi to meters
         xi_meters = xi.copy()
         xi_meters[:, 0] *= self.sx
         xi_meters[:, 1] *= self.sy
@@ -35,17 +36,19 @@ class ChompSolverSlip(ChompSolver):
         dx = np.diff(xi_meters[:, 0])
         dy = np.diff(xi_meters[:, 1])
         dtheta = np.diff(np.unwrap(xi_meters[:, 2]))
-
         # append last value to keep same length N of optimized_xi_meters
         dx = np.append(dx, dx[-1])
         dy = np.append(dy, dy[-1])
         dtheta = np.append(dtheta, dtheta[-1])
-        v_des = np.hypot(dx, dy) / params.dT
-        omega_des = dtheta / params.dT
 
-        Fslip_cost = computeCost(xi_meters, )
+        v_des = np.hypot(dx, dy) / dt
+        omega_des = dtheta / dt
 
+        Fslip_cost = computeCost(self.p, xi_meters[:, 0], xi_meters[:, 1], xi_meters[:, 2], v_des, omega_des, dt)
 
+        print(Fslip_cost)
+        import sys
+        sys.exit()
         #### TODO gradient computation
         # flatten to vector with MATLAB-style column-major ordering nabla_Fobs(:)
         nabla_Fslip_vec = nabla_Fslip.flatten(order='F')  # 1D array length of dimension 3(N-2)
@@ -54,6 +57,10 @@ class ChompSolverSlip(ChompSolver):
 
 # If you want to run it directly:
 if __name__ == "__main__":
+    # initial pose
+    p0 = np.array([0., 0., 0.])
+    # final pose
+    pf = np.array([220 * 0.02, 190 * 0.02, np.pi / 4])  # 0.02 is the conversion gain to convert units used in chomp_no_theta into meters
 
     ch = ChompSolverSlip()
     # -------------------------------
@@ -89,29 +96,23 @@ if __name__ == "__main__":
     import rospkg
     ch.obstacles_to_stl_scaled(obstacles, rospkg.RosPack().get_path('tractor_description') + '/meshes/obstacles.stl', height_m=2.0, sx=ch.sx, sy=ch.sy)
 
-    # --------------------------------
-    # 2) Robot + CHOMP parameters
-    # --------------------------------
-    theta0 = np.pi / 4.0
-
-    # Optimize ONLY [x, y]. Theta is reconstructed from the XY tangent.
-    q_start = np.array([0.0, 0.0, theta0])
-    q_goal  = np.array([300.0, 200.0, theta0])
-    # q_goal  = np.array([450.0, 400.0, theta0])
-    # q_goal  = np.array([400.0, 100.0, theta0])
-
-
     chomp_params = Params(
         DOF=2,
         lambda_=200.0,
         eta=0.001,
         MAX_ITER=100,
         TOL=1.0,
-        dT=1,
+        dT=1.0,
         t0=0.0,
-        tf=40.0,
+        tf=20.0,
         convex_hull_contact=True,
     )
+
+    # map from metric to world units (expt for theta)
+    q_start = p0.copy()
+    q_start[:2] /=ch.sx
+    q_goal = pf.copy()
+    q_goal[:2] /= ch.sy
 
     # polygon in base frame (world units)
     #robot size
@@ -140,13 +141,15 @@ if __name__ == "__main__":
     dx = np.diff(optimized_xi_meters[:, 0])
     dy = np.diff(optimized_xi_meters[:, 1])
     dtheta = np.diff(np.unwrap(optimized_xi_meters[:, 2]))
-    v = np.hypot(dx, dy)/ chomp_params.dT
-    omega = dtheta/ chomp_params.dT
 
     # append last value to keep same length N of optimized_xi_meters
     dx = np.append(dx, dx[-1])
     dy = np.append(dy, dy[-1])
     dtheta = np.append(dtheta, dtheta[-1])
+
+    v = np.hypot(dx, dy)/ chomp_params.dT
+    omega = dtheta/ chomp_params.dT
+
 
     plt.figure()
     plt.plot(v, "bo-", linewidth=2, markersize=2, label="long")
@@ -161,4 +164,7 @@ if __name__ == "__main__":
     plt.grid(True)
     plt.axis("equal")
     plt.show()
+
+
+
 

@@ -57,7 +57,8 @@ class ChompSolver:
         final_traj = ch.run()
     """
 
-    def __init__(self):
+    def __init__(self, task_name='obs'):
+        self.task_name = task_name
         pass
 
     # ----------------------------------------------------------------------
@@ -182,10 +183,10 @@ class ChompSolver:
             print(f"\nIteration {it:3d} |", end="")
 
             # Step 1: total functional gradient
-            (nabla_U_vec, nabla_Fobs_vec, nabla_Fsmooth_vec, total_cost,  Fobs_cost, Fsmooth_cost) \
+            (nabla_U_vec, nabla_Ftask_vec, nabla_Fsmooth_vec, total_cost,  Ftask_cost, Fsmooth_cost) \
                 = self.calculate_total_gradient(xi, T, robot, params, M, A, b_vec, c, lambda_, DOF)
 
-            # todo check  nabla_Fobs_vec is twice higher than the matlab one
+            # todo check  nabla_Ftask_vec is twice higher than the matlab one
 
             # Step 2: covariant update: delta_xi = -A^{-1} * nabla_U
             delta_xi_vec = -spsolve(A, nabla_U_vec)
@@ -213,10 +214,10 @@ class ChompSolver:
                     xi_try[1:T - 1, :] = xi_try_int
 
                     (nabla_U_vec_try,
-                     nabla_Fobs_vec_try,
+                     nabla_Ftask_vec_try,
                      nabla_Fsmooth_try,
                      total_cost_try,
-                     Fobs_cost_try,
+                     Ftask_cost_try,
                      Fsmooth_cost_try) = self.calculate_total_gradient(
                         xi_try, T, robot, params, M, A, b_vec, c, lambda_, DOF
                     )
@@ -238,12 +239,12 @@ class ChompSolver:
 
             # Logging
             grad_s_norm = np.linalg.norm(lambda_ * nabla_Fsmooth_vec)
-            grad_o_norm = np.linalg.norm(nabla_Fobs_vec)
+            grad_o_norm = np.linalg.norm(nabla_Ftask_vec)
             step_norm = np.linalg.norm(eta * delta_xi_int)
 
             print(f"   total Cost: {total_cost:8.0f} |"
                   f"    Smoothness cost: {lambda_ * Fsmooth_cost:8.0f} |"
-                  f"    Obstacle cost: {Fobs_cost:8.0f} |"
+                  f"    Obstacle cost: {Ftask_cost:8.0f} |"
                   f"    Smooth Grad.norm: {grad_s_norm:8.0f} |"
                   f"    obs.Grad.norm: {grad_o_norm:8.0f} |"
                   f" Step Norm: {step_norm:8.0f}", end="")
@@ -270,12 +271,12 @@ class ChompSolver:
 
     def calculate_total_gradient(self, xi, T, robot, params, M, A, b_vec, c, lambda_, DOF):
         """
-        [nabla_U_vec, nabla_Fobs_vec, nabla_Fsmooth_vec,
-         total_cost, Fobs_cost, Fsmooth_cost]
+        [nabla_U_vec, nabla_Ftask_vec, nabla_Fsmooth_vec,
+         total_cost, Fotask_cost, Fsmooth_cost]
 
         In this variant, theta is NOT an optimization variable:
           - xi is (T x 2) containing [x, y]
-          - obstacle term is computed using a reconstructed theta(x,y) internally
+          - task term is computed using a reconstructed theta(x,y) internally
           - gradients are returned only w.r.t. [x, y] internal waypoints
 
         nabla vectors are stacked DOF-major: [x_block; y_block]
@@ -292,17 +293,17 @@ class ChompSolver:
         nabla_Fsmooth_vec = (A @ xi_int_vec) + b_vec
 
         # Obstacle term (computed on full [x,y,theta(xy)] but returned for XY only)
-        nabla_Fobs_vec, Fobs_cost = self.chompFobs_xy(xi, robot, M, dT)
+        nabla_Ftask_vec, Ftask_cost = self.chompFtask_xy(xi, robot, M, dT)
 
         # Combine
-        nabla_U_vec = lambda_ * nabla_Fsmooth_vec + nabla_Fobs_vec
-        total_cost = lambda_ * Fsmooth_cost + Fobs_cost
+        nabla_U_vec = lambda_ * nabla_Fsmooth_vec + nabla_Ftask_vec
+        total_cost = lambda_ * Fsmooth_cost + Ftask_cost
 
         return (nabla_U_vec,
-                nabla_Fobs_vec,
+                nabla_Ftask_vec,
                 nabla_Fsmooth_vec,
                 total_cost,
-                Fobs_cost,
+                Ftask_cost,
                 Fsmooth_cost)
 
 
@@ -515,7 +516,7 @@ class ChompSolver:
         xi_full = np.column_stack([x, y, theta])
         return xi_full
 
-    def chompFobs_xy(self, xi_xy, robot, M, dt):
+    def chompFtask_xy(self, xi_xy, robot, M, dt):
         """
         Wrapper: compute obstacle gradient/cost using a full (x,y,theta) trajectory where
         theta is reconstructed from XY tangent, but return gradient only w.r.t. (x,y)
@@ -526,7 +527,12 @@ class ChompSolver:
           Fobs_cost: scalar
         """
         xi_full = self.addThetaFromXY(xi_xy)
-        nabla_full_vec, Fobs_cost = self.chompFobs(xi_full, robot, M, dt, DOF=3)
+
+        func = getattr(self, "chompF" + self.task_name, None)
+        if func is None:
+            raise ValueError(f"Unknown task: {self.task_name}")
+        nabla_full_vec, Fobs_cost = func(xi_full, robot, M, dt, DOF=3)
+
 
         T = xi_xy.shape[0]
         Nint = T - 2
