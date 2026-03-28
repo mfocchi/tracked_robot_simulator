@@ -68,7 +68,7 @@ class GenericSimulator(BaseController):
         #IMPORTANT if you set too far velocity goes beyond the limit of the NN training region and slippage estimators will not work!
         self.pf = np.array([220*0.02, 190*0.02, np.pi/4]) #0.02 is the conversion gain to convert units used in chomp_no_theta into meters
         self.PLANNING = 'chomp' # 'none',  'chomp', 'clothoids'
-        self.TERRAIN_TYPE = 'terrain' #'terrain', 'sphere2'
+        self.TERRAIN_TYPE = 'terrain_chen' #'terrain', 'sphere2' 'terrain_chen'
         self.PLANNING_DURATION = 20.
         self.PLANNING_SPEED = 0.4
         self.SAVE_BAGS = False
