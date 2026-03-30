@@ -294,24 +294,18 @@ if __name__ == '__main__':
     point = np.array([22., 0.])
     direction = np.array([0., 0., 1.])
 
-    mesh_path = rospkg.RosPack().get_path('tractor_description') + "/meshes/sphere2.stl"
+    mesh_path = rospkg.RosPack().get_path('tractor_description') + "/meshes/terrain_chen.stl"
     terrainManager = TerrainManager(mesh_path)
 
     # Create the ramp mesh
     # ramp_mesh = create_ramp_mesh(length=50., width=50., inclination=-0.1, origin=np.array([0, 0, 0]))
     # terrainManager.set_mesh(ramp_mesh)
 
-    # mesh = o3d.io.read_triangle_mesh(mesh_path)
-    # terrainManager.visualize(mesh)
-    #if you want to rotate the mesh
-    # R = mesh.get_rotation_matrix_from_xyz((np.pi / 2, 0, 0 ))
-    # mesh.rotate(R, center=(0, 0, 0))#rotate pi/2 roll
-    # scale uniformly
-    # mesh.scale(0.001, center=(0, 0, 0))
-    #scale not uniformly
-    #mesh.vertices = o3d.utility.Vector3dVector(np.asarray(mesh.vertices) * np.array([0.5, 0.5, 0.2]))
+    #only visualization
+    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=2, origin=[0, 0, 0])
+    terrainManager.visualize([terrainManager.mesh,  mesh_frame])
 
-    eval_point, roll, pitch, yaw = terrainManager.project_on_mesh(point=point, direction=direction, debug=True)
+    eval_point, roll, pitch, yaw = terrainManager.project_on_mesh(point=point, direction=direction, base_yaw=0.0, debug=True)
 
     # print(scaling_factor * np.array([1, 1, 0.5]))
     print(eval_point)
@@ -319,4 +313,3 @@ if __name__ == '__main__':
     print(pitch)
     print(yaw)
 
-    #
