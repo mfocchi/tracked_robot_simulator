@@ -57,7 +57,7 @@ class GenericSimulator(BaseController):
         self.friction_coefficient = 0.6 # 0.1 (used only in 2d) / 0.4 (2d and 3d) (used for planning in paper)/ 0.6 (only 3d)  with slopes we need high friction otherwise alpha is too high
 
         # initial pose
-        self.p0 = np.array([0., 0., 0.])
+        self.p0 = np.array([0., 0., 0.])    # self.p0 = [x, y, yaw]
 
         # Parameters for open loop identification
         self.IDENT_TYPE = 'NONE'  # 'V_OMEGA(deprecated)', 'WHEELS', 'NONE'

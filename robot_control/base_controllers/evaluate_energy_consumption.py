@@ -177,7 +177,10 @@ class EvaluateEnergyConsumption(GenericSimulator):
         # initialize basePose and sim states to p0 configuration
         self.initializeSimulation()
         # initialize traj cost
-        Cost = 0
+        Cost = 0.0
+        dt = conf.robot_params[self.robot_name]['dt']
+        B = constants.TRACK_WIDTH
+
         while not ros.is_shutdown():
 
             # get single sample point interpolated from traj with dt = 0.001
@@ -187,7 +190,9 @@ class EvaluateEnergyConsumption(GenericSimulator):
                 break
 
             # need to map self.v_d, self.omega_d that are in XY plane into the moving  base frame (Frenet frame)
-            self.b_v_d, self.b_omega_d = self.mapFromWorldFrameToBaseFrame(self.v_d, self.omega_d, self.basePoseW[3:])
+            self.b_v_d, self.b_omega_d = self.mapFromWorldFrameToBaseFrame(
+                self.v_d, self.omega_d, self.basePoseW[3:]
+            )
 
             # map long vel and omega into wheel speeds
             self.qd_des = self.mapToWheels(self.b_v_d, self.b_omega_d)
@@ -195,16 +200,31 @@ class EvaluateEnergyConsumption(GenericSimulator):
             self.q_des = self.q_des + self.qd_des * conf.robot_params[self.robot_name]['dt']
 
             # update  kinematic variables with forward simulation step
-            pg, terrain_roll, terrain_pitch = self.terrainManager.project_on_mesh(point=self.basePoseW[:2], direction=np.array([0., 0., 1.]), base_yaw=self.basePoseW[5])
+            pg, terrain_roll, terrain_pitch = self.terrainManager.project_on_mesh(
+                point=self.basePoseW[:2],
+                direction=np.array([0., 0., 1.]),
+                base_yaw=self.basePoseW[5]
+            )
+
             # terrain yaw is determined by the robot orientation!
             terrain_yaw = self.basePoseW[5]
-            pose_des, terrain_roll_des, terrain_pitch_des = self.terrainManager.project_on_mesh(point=np.array([self.des_x, self.des_y]), direction=np.array([0., 0., 1.]), base_yaw=self.des_yaw)
+            pose_des, terrain_roll_des, terrain_pitch_des = self.terrainManager.project_on_mesh(
+                point=np.array([self.des_x, self.des_y]),
+                direction=np.array([0., 0., 1.]),
+                base_yaw=self.des_yaw
+            )
+
             # optional compute normal just for debug
             w_R_terr = self.math_utils.eul2Rot(np.array([terrain_roll, terrain_pitch, terrain_yaw]))
             w_normal = w_R_terr.dot(np.array([0, 0, 1]))
+
             # pg is the point on ground correspondent to pcom_on_track_level
-            self.tracked_vehicle_simulator.simulateOneStep(pg, terrain_roll, terrain_pitch, terrain_yaw, self.qd_des[0], self.qd_des[1])
+            self.tracked_vehicle_simulator.simulateOneStep(
+                pg, terrain_roll, terrain_pitch, terrain_yaw, self.qd_des[0], self.qd_des[1]
+            )
             self.basePoseW, self.baseTwistW = self.tracked_vehicle_simulator.getRobotState()
+
+
             # update quaternions
             self.euler = self.u.angPart(self.basePoseW)
             self.quaternion = pin.Quaternion(pin.rpy.rpyToMatrix(self.euler))
@@ -222,19 +242,47 @@ class EvaluateEnergyConsumption(GenericSimulator):
             Fx_l, Fx_r, Fy_l, Fy_r = self.tracked_vehicle_simulator.getTerramechanicsInteractions()
 
             # estimate slippages using long vel and omega (in base frame) and  wheel speeds
-            self.beta_l, self.beta_r, self.alpha, _, b_vel_xy = self.estimateSlippages(self.baseTwistW, self.basePoseW[self.u.sp_crd["AZ"]], self.qd_des)
+            self.beta_l, self.beta_r, self.alpha, _, b_vel_xy = self.estimateSlippages(
+                self.baseTwistW,
+                self.basePoseW[self.u.sp_crd["AZ"]],
+                self.qd_des
+            )
 
             # update energy consumption for this sample of the trajectory
+            b_v_x = b_vel_xy[0]
             b_v_y = b_vel_xy[1]
-            Cost += Fx_l * self.beta_l + Fx_r * self.beta_r + Fy_l * b_v_y + Fy_r * b_v_y
+
+            # body angular velocity around z in base frame
+            w_R_b = self.math_utils.eul2Rot(self.u.angPart(self.basePoseW))
+            b_ang_vel = w_R_b.T.dot(self.u.angPart(self.baseTwistW))
+            omega_b = b_ang_vel[2]
+
+            # longitudinal velocity of each track center
+            v_track_l = b_v_x - omega_b * B / 2.0
+            v_track_r = b_v_x + omega_b * B / 2.0
+
+            # power-like cost:
+            #   Fx * v_x     -> longitudinal traction effort
+            #   Fx * beta    -> longitudinal slip loss
+            #   Fy * v_y     -> lateral slip loss
+            P_long_left = Fx_l * (v_track_l + self.beta_l)
+            P_long_right = Fx_r * (v_track_r + self.beta_r)
+            P_lat_left = Fy_l * b_v_y
+            P_lat_right = Fy_r * b_v_y
+
+            P_total = P_long_left + P_long_right + P_lat_left + P_lat_right
+
+            # integrate power over time to get an energy-like quantity
+            Cost += P_total * dt
 
             if np.mod(self.time, 1) == 0:
                 print(colored(f"TIME: {self.time}", "red"))
-            # log variables
+
             if self.DEBUG:
                 self.logData()
-            # update the time (needed for the evaluation of the trajectory that needs to be interpolated with finer grid beetween samples)
-            self.time = np.round(self.time + np.array([conf.robot_params[self.robot_name]['dt']]), 4)  # to avoid issues of dt 0.0009999
+
+            # advance simulation time
+            self.time = np.round(self.time + np.array([dt]), 4)
 
         if self.DEBUG:
             self.plotData()
