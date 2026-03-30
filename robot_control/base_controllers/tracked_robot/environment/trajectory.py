@@ -142,36 +142,39 @@ class Trajectory:
         # trajectory duration: last sample at (N)*DT
         if elapsed_time >= t_end:
             print("Trajectory finished")
+            self.alpha = 0.
             return 0, 0, 0, 0, 0, 0, 0, True
 
         # Continuous index in sample units
         s = elapsed_time / self.DT
         i = int(np.floor(s))
-        alpha = s - i  # in [0, 1)
+        self.alpha = s - i  # in [0, 1)
 
         # numerical safety
         if i < 0:
-            i, alpha = 0, 0.0
+            i, self.alpha = 0, 0.0
         elif i >= N - 1:
-            i, alpha = N - 2, 1.0
+            i, self.alpha = N - 2, 1.0
 
         # Interpolate
-        des_x = self.lerp(self.x[i], self.x[i + 1], alpha)
-        des_y = self.lerp(self.y[i], self.y[i + 1], alpha)
+        des_x = self.lerp(self.x[i], self.x[i + 1], self.alpha)
+        des_y = self.lerp(self.y[i], self.y[i + 1], self.alpha)
 
         # Theta
-        des_theta = self.lerp_angle(self.theta[i], self.theta[i + 1], alpha)
+        des_theta = self.lerp_angle(self.theta[i], self.theta[i + 1], self.alpha)
         if self.unwrap:
             # keep your original unwrapping behavior if you rely on continuous theta
             des_theta, self.des_theta_old = unwrap_angle(des_theta, self.des_theta_old)
 
-        v_d = self.lerp(self.v[i], self.v[i + 1], alpha)
-        omega_d = self.lerp(self.omega[i], self.omega[i + 1], alpha)
-        v_dot_d = self.lerp(self.v_dot[i], self.v_dot[i + 1], alpha)
-        omega_dot_d = self.lerp(self.omega_dot[i], self.omega_dot[i + 1], alpha)
+        v_d = self.lerp(self.v[i], self.v[i + 1], self.alpha)
+        omega_d = self.lerp(self.omega[i], self.omega[i + 1], self.alpha)
+        v_dot_d = self.lerp(self.v_dot[i], self.v_dot[i + 1], self.alpha)
+        omega_dot_d = self.lerp(self.omega_dot[i], self.omega_dot[i + 1], self.alpha)
 
         return des_x, des_y, des_theta, v_d, omega_d, v_dot_d, omega_dot_d, False
 
+    def get_knot_transition(self):
+        return self.alpha == 0.
 
 if __name__ == "__main__":
     theta0 = np.pi / 4.0
