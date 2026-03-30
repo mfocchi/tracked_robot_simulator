@@ -291,10 +291,10 @@ def create_ramp_mesh(length, width, inclination=0., origin=np.array([0,0,0])):
 if __name__ == '__main__':
 
     scaling_factor = 1
-    point = np.array([22., 0.])
+    point = np.array([10., 0.])
     direction = np.array([0., 0., 1.])
 
-    mesh_path = rospkg.RosPack().get_path('tractor_description') + "/meshes/terrain_chen.stl"
+    mesh_path = rospkg.RosPack().get_path('tractor_description') + "/meshes/terrain_chen2.stl"
     terrainManager = TerrainManager(mesh_path)
 
     # Create the ramp mesh
@@ -302,14 +302,14 @@ if __name__ == '__main__':
     # terrainManager.set_mesh(ramp_mesh)
 
     #only visualization
-    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=2, origin=[0, 0, 0])
-    terrainManager.visualize([terrainManager.mesh,  mesh_frame])
+    # mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=2, origin=[0, 0, 0])
+    # terrainManager.visualize([terrainManager.mesh,  mesh_frame])
 
-    eval_point, roll, pitch, yaw = terrainManager.project_on_mesh(point=point, direction=direction, base_yaw=0.0, debug=True)
+    eval_point, roll, pitch = terrainManager.project_on_mesh(point=point, direction=direction, base_yaw=0.0, debug=True)
 
     # print(scaling_factor * np.array([1, 1, 0.5]))
     print(eval_point)
     print(roll)
     print(pitch)
-    print(yaw)
+
 
