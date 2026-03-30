@@ -411,7 +411,7 @@ class ChompSolver:
                 Fobs_cost += c * xdot_norm * dt
 
         # flatten to vector with MATLAB-style column-major ordering nabla_Fobs(:)
-        nabla_Fobs_vec = nabla_Fobs.flatten(order='F')  # 1D array length of dimension 3(N-2)
+        nabla_Fobs_vec = nabla_Fobs.flatten(order='F')  # 1D array length of dimension DOFS(N-2)
 
         return nabla_Fobs_vec, Fobs_cost
 
