@@ -26,9 +26,9 @@ from matplotlib import pyplot as plt
 robotName = "tractor" # needs to inherit BaseController
 
 class EvaluateEnergyConsumption(GenericSimulator):
-    def __init__(self):
+    def __init__(self, dt=None):
         super().__init__(robotName)
-        self.initializeEnergyComputation()
+        self.initializeEnergyComputation(dt)
         pass
 
 
@@ -177,17 +177,18 @@ class EvaluateEnergyConsumption(GenericSimulator):
         # initialize basePose and sim states to p0 configuration
         self.initializeSimulation()
         # initialize traj cost
-        Cost = 0.0
-        dt = conf.robot_params[self.robot_name]['dt']
+        Cost = [ ]
+        Energy_last = 0
+        Energy = 0
+
+
         B = constants.TRACK_WIDTH
 
         while not ros.is_shutdown():
 
             # get single sample point interpolated from traj with dt = 0.001
             self.des_x, self.des_y, self.des_yaw, self.v_d, self.omega_d, self.v_dot_d, self.omega_dot_d, traj_finished = self.traj.evalTraj(self.time)
-            if traj_finished:
-                print(f"Energy: {Cost}")
-                break
+
 
             # need to map self.v_d, self.omega_d that are in XY plane into the moving  base frame (Frenet frame)
             self.b_v_d, self.b_omega_d = self.mapFromWorldFrameToBaseFrame(
@@ -197,7 +198,7 @@ class EvaluateEnergyConsumption(GenericSimulator):
             # map long vel and omega into wheel speeds
             self.qd_des = self.mapToWheels(self.b_v_d, self.b_omega_d)
             # compute wheel positions (for debug)
-            self.q_des = self.q_des + self.qd_des * conf.robot_params[self.robot_name]['dt']
+            self.q_des = self.q_des + self.qd_des * self.dt
 
             # update  kinematic variables with forward simulation step
             pg, terrain_roll, terrain_pitch = self.terrainManager.project_on_mesh(
@@ -272,8 +273,15 @@ class EvaluateEnergyConsumption(GenericSimulator):
 
             P_total = P_long_left + P_long_right + P_lat_left + P_lat_right
 
+            Energy+= P_total * self.dt
             # integrate power over time to get an energy-like quantity
-            Cost += P_total * dt
+            if self.traj.get_knot_transition(): #accumulate power every plan_dt seconds
+                Cost.append(Energy-Energy_last)
+                Energy_last = Energy
+
+            if traj_finished and self.DEBUG:
+                print(f"Energy:{Energy} =  Cost  {sum(Cost)}, len of cost vector: {len(Cost)}")
+                break
 
             if np.mod(self.time, 1) == 0:
                 print(colored(f"TIME: {self.time}", "red"))
@@ -282,15 +290,21 @@ class EvaluateEnergyConsumption(GenericSimulator):
                 self.logData()
 
             # advance simulation time
-            self.time = np.round(self.time + np.array([dt]), 4)
+            self.time = np.round(self.time + np.array([self.dt]), 4)
+
+
 
         if self.DEBUG:
             self.plotData()
 
-        return Cost
+        return np.array(Cost)
 
-    def initializeEnergyComputation(self):
+    def initializeEnergyComputation(self, dt=None):
 
+        if dt is None:
+            self.dt = conf.robot_params[self.robot_name]['dt']
+        else:
+            self.dt = dt
         #prologue (do only once)
         self.DEBUG = True
 
@@ -301,14 +315,14 @@ class EvaluateEnergyConsumption(GenericSimulator):
         self.pf = np.array([220 * 0.02, 190 * 0.02,   np.pi / 4])  # 0.02 is the conversion gain to convert units used in chomp_no_theta into meters
         self.PLANNING_DURATION = 20.
         #ovverride default buffer size
-        conf.robot_params[self.robot_name]['buffer_size'] = int(self.PLANNING_DURATION  / conf.robot_params[self.robot_name]['dt'])
-        self.TERRAIN_TYPE = 'terrain'  # 'terrain', 'sphere3'
+        conf.robot_params[self.robot_name]['buffer_size'] = int(self.PLANNING_DURATION  / self.dt)
+        self.TERRAIN_TYPE = 'terrain'  # 'terrain', 'sphere3', 'terrain_chen'
         self.OBSTACLES = True
 
         #full detail model
         print(colored("SIMULATION 3D is unstable for dt > 0.001, resetting dt=0.001 and increased 5x buffer_size", "red"))
         groundParams = Ground3D(friction_coefficient=self.friction_coefficient, terrain_stiffness=1e05, terrain_damping=0.5e04)
-        self.tracked_vehicle_simulator = TrackedVehicleSimulator3D(dt=conf.robot_params[self.robot_name]['dt'],  ground=groundParams, USE_MESH=self.TERRAIN, enable_visuals=False, contact_distribution=False)
+        self.tracked_vehicle_simulator = TrackedVehicleSimulator3D(dt=self.dt,  ground=groundParams, USE_MESH=self.TERRAIN, enable_visuals=False, contact_distribution=False)
         self.flag3D='_3d_'
 
         #set terrain
