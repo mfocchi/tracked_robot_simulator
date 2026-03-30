@@ -9,7 +9,9 @@ robotName = "tractor" # needs to inherit BaseController
 class ChompSolverSlip(ChompSolver):
     def __init__(self, task_name='slip'):
         super().__init__(task_name=task_name)
-        self.evaluateEnergyConsumption = EvaluateEnergyConsumption(robotName)
+
+        self.evaluateEnergyConsumption = EvaluateEnergyConsumption(dt=0.004)
+        self.evaluateEnergyConsumption.DEBUG = True
         self.fd_eps = 1e-3   # finite-difference perturbation in world units
         self.grad_clip = 1e3 # optional stability clip
 
@@ -109,12 +111,12 @@ class ChompSolverSlip(ChompSolver):
             omega_ol=omega_des,
             plan_dt=dt
         )
-        return float(cost)
+        return cost
 
     # ------------------------------------------------------------------
     # Energy functional gradient by finite differences
     # ------------------------------------------------------------------
-    def chompFslip(self, xi_xy, robot, M, dt, DOF):
+    def chompFslip_old(self, xi_xy, robot, M, dt, DOF):
         """
         Compute:
             nabla_Fenergy_vec, Fenergy_cost
@@ -159,6 +161,59 @@ class ChompSolverSlip(ChompSolver):
 
         # Flatten in MATLAB / CHOMP column-major style
         nabla_Fenergy_vec = grad.flatten(order='F')
+        return nabla_Fenergy_vec, Fenergy_cost
+
+    def chompFslip(self, xi_xy, robot, M, dt, DOF):
+        """
+        Compute:
+            nabla_Fenergy_vec, Fenergy_cost
+
+        Inputs:
+          xi_xy : (T x 2) trajectory in CHOMP/world units
+          robot, M : unused directly here, kept for CHOMP interface compatibility
+          dt : timestep
+          DOF : should be 2 in this formulation
+
+        Outputs:
+          nabla_Fenergy_vec : length DOF*(T-2), column-major stacked
+          Fenergy_cost      : scalar
+        """
+        T = xi_xy.shape[0]
+        Nint = T - 2
+
+        if DOF != 2:
+            raise ValueError(f"ChompSolverSlip assumes DOF=2, got DOF={DOF}")
+
+        EnergyVector = self.energy_cost(xi_xy, dt)
+        # Base cost
+        Fenergy_cost = np.sum(EnergyVector)
+
+        # Finite-difference gradient wrt internal XY waypoints only
+        # grad along X
+        x_plus = xi_xy.copy()
+        x_minus = xi_xy.copy()
+        x_plus[:,0] += self.fd_eps
+        x_minus[:,0] -= self.fd_eps
+        cost_plus_x = self.energy_cost(x_plus, dt)
+        cost_minus_x = self.energy_cost(x_minus, dt)
+        grad_x = (cost_plus_x - cost_minus_x) / (2.0 * self.fd_eps)
+        #grad along Y
+        y_plus = xi_xy.copy()
+        y_minus = xi_xy.copy()
+        y_plus[:,1] += self.fd_eps
+        y_minus[:,1] -= self.fd_eps
+        cost_plus_y = self.energy_cost(y_plus, dt)
+        cost_minus_y = self.energy_cost(y_minus, dt)
+        grad_y = (cost_plus_y - cost_minus_y) / (2.0 * self.fd_eps)
+
+        #this is a vector N-2 X 2
+        grad = np.hstack((grad_x[1:T-1], grad_y[1:T-1]))
+
+        # Optional clipping for numerical stability
+        #grad = np.clip(grad, -self.grad_clip, self.grad_clip)
+
+        # Flatten in MATLAB / CHOMP column-major style
+        nabla_Fenergy_vec = grad.flatten(order='F') # 1D array length of dimension 2(N-2)
         return nabla_Fenergy_vec, Fenergy_cost
 
     def calculate_total_gradient(self, xi, T, robot, params, M, A, b_vec, c, lambda_, DOF):
@@ -212,6 +267,8 @@ class ChompSolverSlip(ChompSolver):
 
 # If you want to run it directly:
 if __name__ == "__main__":
+
+
     # initial pose
     p0 = np.array([0., 0., 0.])
     # final pose
