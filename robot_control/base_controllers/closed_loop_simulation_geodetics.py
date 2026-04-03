@@ -108,17 +108,45 @@ class GenericSimulator(BaseController):
         return R
 
 
-    #added a method to compute the reference Dubins on sphere
-    def getDubins(self, p0, pf, long_vel, omega, R_sphere, dt):
-
-        #initial and final pose and orientation in 3D
-        terrain_consistent_pose_init = np.array([p0[0], p0[1], 0, 0, 0, 0])
-        terrain_consistent_pose_fin = np.array([pf[0], pf[1], 0, 0, 0, 0])
+    # returns position on sphere and roll, pitch, yaw angles of robot given (x,y,yaw) and radius of sphere
+    def compute_pose_on_sphere(self, x, y, yaw, R_sphere):
 
         # computing the offset in position between center of sphere and reference frame used for position to mesh
         terrain_offset_pose = np.array([0, 0, 0, 0, 0, 0])
-        offset_position, _, _, _ = p.terrainManager.project_on_mesh(
-            point=terrain_offset_pose[:2], direction=np.array([0., 0., 1.]))
+        offset_position, _, _ = p.terrainManager.project_on_mesh(
+            point=terrain_offset_pose[:2], direction=np.array([0., 0., 1.]), base_yaw=yaw)
+
+        if yaw is None:
+            raise ValueError("yaw is None in compute_pose_on_sphere")
+
+        x_offset = 0 - offset_position[0]
+        y_offset = 0 - offset_position[1]
+
+        z = np.sqrt( R_sphere**2 - (x + x_offset)**2 - (y + y_offset)**2)
+        p_sphere = np.array([x, y, z])
+
+        # normal vector
+        n = p_sphere / np.linalg.norm(p_sphere)
+
+        # rotate normal according to yaw
+        n_yaw_x = np.cos(yaw) * n[0] + np.sin(yaw) * n[1]
+        n_yaw_y = -np.sin(yaw) * n[0] + np.cos(yaw) * n[1]
+        n_yaw_z = n[2]
+
+        # compute roll and pitch
+        roll = math.atan2(n_yaw_x, n_yaw_z)
+        pitch = math.atan2(-n_yaw_y, np.sqrt(n_yaw_x ** 2 + n_yaw_z ** 2))
+
+        return x,y,z,roll,pitch,yaw
+
+
+    #added a method to compute the reference Dubins on sphere
+    def getDubins(self, p0, pf, long_vel, omega, R_sphere, dt):
+
+        # computing the offset in position between center of sphere and reference frame used for position to mesh
+        terrain_offset_pose = np.array([0, 0, 0, 0, 0, 0])
+        offset_position, _, _ = p.terrainManager.project_on_mesh(
+            point=terrain_offset_pose[:2], direction=np.array([0., 0., 1.]), base_yaw=0)
 
         x_offset = 0 - offset_position[0]
         y_offset = 0 - offset_position[1]
@@ -130,11 +158,10 @@ class GenericSimulator(BaseController):
         print(p_offset)
         print('\n')
 
-        #retrieving initial position and orientation in 3D relative to mesh
-        start_position, start_roll, start_pitch, start_yaw = p.terrainManager.project_on_mesh(
-            point=terrain_consistent_pose_init[:2], direction=np.array([0., 0., 1.]))
+        x0, y0, z0, roll0, pitch0, yaw0 = self.compute_pose_on_sphere(p0[0], p0[1], p0[2], R_sphere)
+        start_position = np.array([x0, y0, z0])
 
-        RF_ini = self.rotation_on_sphere(start_position + p_offset, start_yaw, R_sphere)
+        RF_ini = self.rotation_on_sphere(start_position, yaw0, R_sphere)
         #w_R_terr = p.math_utils.eul2Rot(np.array([start_roll, start_pitch, start_yaw]))
         #sphere radius
         #RF_ini = w_R_terr
@@ -143,15 +170,16 @@ class GenericSimulator(BaseController):
         print('Initial position')
         print(start_position)
         print('\n')
-        angles = np.array([start_roll, start_pitch, start_yaw])
+        angles = np.array([roll0, pitch0, yaw0])
         print('Initial roll, pitch, yaw')
         print(angles)
         print('\n')
 
         # retrieving final position and orientation in 3D relative to mesh
-        final_position, final_roll, final_pitch, final_yaw = p.terrainManager.project_on_mesh(
-            point=terrain_consistent_pose_fin[:2], direction=np.array([0., 0., 1.]))
-        RF_fin = self.rotation_on_sphere(final_position + p_offset, final_yaw, R_sphere)
+        xf, yf, zf, rollf, pitchf, yawf = self.compute_pose_on_sphere(pf[0], pf[1], pf[2], R_sphere)
+        final_position = np.array([xf, yf, zf])
+
+        RF_fin = self.rotation_on_sphere(final_position, yawf, R_sphere)
         #w_R_terr = p.math_utils.eul2Rot(np.array([final_roll, final_pitch, final_yaw]))
         #RF_fin = w_R_terr
         #RF_fin[:, 0] = R_sphere * RF_fin[:, 0]
@@ -159,7 +187,7 @@ class GenericSimulator(BaseController):
         print('Final position')
         print(final_position)
         print('\n')
-        angles = np.array([final_roll, final_pitch, final_yaw])
+        angles = np.array([rollf, pitchf, yawf])
         print('Final roll, pitch, yaw')
         print(angles)
         print('\n')
@@ -719,10 +747,11 @@ class GenericSimulator(BaseController):
                 p_ij = np.array([x_ij, y_ij, 0, 0, 0, 0])
                 #TODO compute yaw_ij analitically!
                 #yaw_ij = ...
-                p_mesh_ij, roll_ij, pitch_ij = p.terrainManager.project_on_mesh(
-                    point=p_ij[:2], direction=np.array([0., 0., 1.]), base_yaw=yaw_ij])
+                #p_mesh_ij, roll_ij, pitch_ij = p.terrainManager.project_on_mesh(
+                #    point=p_ij[:2], direction=np.array([0., 0., 1.]), base_yaw=yaw_ij)
+                yaw_ij = 0;
+                _, _, z_ij, roll_ij, pitch_ij, _ = self.compute_pose_on_sphere(x_ij, y_ij, yaw_ij, R_sphere)
 
-                z_ij = math.sqrt(R_sphere**2 - (x_ij + x_offset)**2 - (y_ij + y_offset)**2)
                 RF_sphere = p.rotation_on_sphere(np.array([x_ij + x_offset, y_ij + y_offset, z_ij]), 0, R_sphere)
                 RF_sphere[:,0] = RF_sphere[:,0]/R_sphere
                 R_check = p.rotation_on_sphere(np.array([0, 0, R_sphere]), 0, R_sphere)
@@ -737,13 +766,6 @@ class GenericSimulator(BaseController):
                     print(RF_sphere)
                     print('\n')
                     print(R_check)
-                yaw_ij = np.arcsin(np.inner(R_ij[:,0], np.array([0,1,0])))
-                pitch_ij = np.arcsin(np.inner(R_ij[:,2], np.array([1,0,0])))
-                roll_ij = np.arcsin(np.inner(R_ij[:,1], np.array([0,0,1])))
-                #roll_ij, pitch_ij, yaw_ij = p.rotationMatrixToEulerAngles(R_ij)
-                #roll_ij = np.arctan2(R_ij[2, 1], R_ij[2, 2])
-                #pitch_ij = np.arctan2(-R_ij[2, 0], np.sqrt(R_ij[2, 1] * R_ij[2, 1] + R_ij[2, 2] * R_ij[2, 2]))
-                #yaw_ij = np.arctan2(R_ij[1, 0], R_ij[0, 0])
 
                 slip_cost_M[i, j] = (300*pitch_ij)**2  # roll_ij**2 + pitch_ij**2 + yaw_ij**2
 
