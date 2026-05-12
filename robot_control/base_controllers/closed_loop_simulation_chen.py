@@ -310,7 +310,7 @@ class GenericSimulator(BaseController):
             self.ros_pub.add_marker(np.array([blob_x, blob_y, self.basePoseW[2]]), color="white", radius=0.5)
 
     def getChomp(self, start, goal):
-        from tracked_robot.planners.chomp_no_theta import ChompSolver, Params
+        from tracked_robot.planners.chomp_no_theta import ChompSolverSlip, Params
         ch = ChompSolver()
         # -------------------------------
         # 1) Create a map
@@ -893,11 +893,11 @@ class GenericSimulator(BaseController):
 
         if self.TERRAIN: #this is published to show mesh in rviz
             if self.IDENT_TYPE=='WHEELS' and self.SIMULATOR=='distributed3d':
-                self.ros_pub.add_plane(pos=np.array([0,0,-0.]), orient=np.array([0., self.RAMP_INCLINATION, 0]), color="white", alpha=0.5)
+                self.ros_pub.add_plane(pos=np.array([0,0,-0.]), orient=np.array([0., self.RAMP_INCLINATION, 0]), color="white", alpha=1.0)
             else:
-                self.ros_pub.add_mesh("tractor_description", "/meshes/"+self.TERRAIN_TYPE+".stl", position=np.array([0., 0., 0.0]), color="red", alpha=1.0)
+                self.ros_pub.add_mesh("tractor_description", "/meshes/"+self.TERRAIN_TYPE+".stl", position=np.array([0., 0., 0.0]), color="red", alpha=0.5)
                 if self.OBSTACLES:
-                    self.ros_pub.add_mesh("tractor_description", '/meshes/obstacles.stl', position=np.array([0., 0., 0.0]), color="blue", alpha=1.0)
+                    self.ros_pub.add_mesh("tractor_description", '/meshes/obstacles.stl', position=np.array([0., 0., 0.0]), color="blue", alpha=0.6)
         if np.mod(self.time,1) == 0:
             print(colored(f"TIME: {self.time}","red"))
         self.pub_counter+=1

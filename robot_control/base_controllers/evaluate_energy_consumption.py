@@ -266,8 +266,8 @@ class EvaluateEnergyConsumption(GenericSimulator):
             #   Fx * v_x     -> longitudinal traction effort
             #   Fx * beta    -> longitudinal slip loss
             #   Fy * v_y     -> lateral slip loss
-            P_long_left = Fx_l * (v_track_l + self.beta_l)
-            P_long_right = Fx_r * (v_track_r + self.beta_r)
+            P_long_left = Fx_l * ( self.beta_l)
+            P_long_right = Fx_r * (self.beta_r)
             P_lat_left = Fy_l * b_v_y
             P_lat_right = Fy_r * b_v_y
 
@@ -280,11 +280,11 @@ class EvaluateEnergyConsumption(GenericSimulator):
                 Energy_last = Energy
 
             if traj_finished and self.DEBUG:
-                print(f"Energy:{Energy} =  Cost  {sum(Cost)}, len of cost vector: {len(Cost)}")
+                print(f"Energy:{Energy} =  Cost")
                 break
 
-            if np.mod(self.time, 1) == 0:
-                print(colored(f"TIME: {self.time}", "red"))
+            # if np.mod(self.time, 1) == 0:
+            #     print(colored(f"TIME: {self.time}", "red"))
 
             if self.DEBUG:
                 self.logData()
@@ -294,8 +294,8 @@ class EvaluateEnergyConsumption(GenericSimulator):
 
 
 
-        if self.DEBUG:
-            self.plotData()
+        # if self.DEBUG:
+        #     self.plotData()
 
         return np.array(Cost)
 

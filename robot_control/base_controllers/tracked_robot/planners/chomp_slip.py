@@ -161,6 +161,8 @@ class ChompSolverSlip(ChompSolver):
 
         # Flatten in MATLAB / CHOMP column-major style
         nabla_Fenergy_vec = grad.flatten(order='F')
+
+
         return nabla_Fenergy_vec, Fenergy_cost
 
     def chompFslip(self, xi_xy, robot, M, dt, DOF):
@@ -214,6 +216,9 @@ class ChompSolverSlip(ChompSolver):
 
         # Flatten in MATLAB / CHOMP column-major style
         nabla_Fenergy_vec = grad.flatten(order='F') # 1D array length of dimension 2(N-2)
+
+        print(f"cost for slippage is {Fenergy_cost}, gradient for slippage is {nabla_Fenergy_vec} ")
+
         return nabla_Fenergy_vec, Fenergy_cost
 
     def calculate_total_gradient(self, xi, T, robot, params, M, A, b_vec, c, lambda_, DOF):
