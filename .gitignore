@@ -1,0 +1,12 @@
+# Python generated files
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# CHOMP / visualization generated outputs
+cheap_slip_risk_chomp_frames/
+chomp_iteration_frames/
+**/cheap_slip_risk_chomp_frames/
+**/chomp_iteration_frames/
