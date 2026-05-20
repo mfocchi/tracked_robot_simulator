@@ -6,12 +6,12 @@ import rospy as ros
 from base_controllers.tracked_robot.environment.trajectory import Trajectory
 from base_controllers.tracked_robot.utils import maxxi_constants as constants
 
-from base_controllers.chomp_slip_workspace.chomp_cost_module.base_cost_module import (
-    BaseCostModule,
+from base_controllers.chomp_slip_workspace.chomp_cost_module.simulation_backed_cost_module import (
+    SimulationBackedCostModule,
 )
 
 
-class TotalEnergyCostModule(BaseCostModule):
+class TotalEnergyCostModule(SimulationBackedCostModule):
     """
     Total terrain-interaction energy cost module.
 
@@ -50,9 +50,10 @@ class TotalEnergyCostModule(BaseCostModule):
             signed mechanical work.
         """
 
+        super().__init__()
         self.positive_only = positive_only
 
-    def compute_cost(self, trajectory_reference, simulator):
+    def compute_cost_vector(self, trajectory_reference, simulator):
         """
         Compute total terrain-interaction energy along a trajectory.
 
@@ -406,9 +407,12 @@ class TotalEnergyCostModule(BaseCostModule):
         Convenience method if CHOMP needs one scalar objective.
         """
 
-        cost_vector = self.compute_cost(
-            trajectory_reference=trajectory_reference,
-            simulator=simulator,
+        cost_vector = np.asarray(
+            self.compute_cost_vector(
+                trajectory_reference=trajectory_reference,
+                simulator=simulator,
+            ),
+            dtype=float,
         )
 
         if cost_vector.size == 0:

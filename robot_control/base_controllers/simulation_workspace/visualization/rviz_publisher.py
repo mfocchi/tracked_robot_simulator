@@ -136,6 +136,9 @@ class RvizPublisher:
         ]
         self._call_first_supported(specs)
 
+    def publishVisual(self, delete_markers=False):
+        self.publish_visuals(delete_markers=delete_markers)
+
     def clear_markers(self):
         specs = [
             ("clear_markers", (), {}),

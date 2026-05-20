@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import os, shutil
+import os, shutil, sys
 import numpy as np
 import rospkg
+from pathlib import Path
 
 from base_controllers.tracked_robot.simulator.terrain_manager import TerrainManager
 
@@ -15,6 +16,51 @@ from base_controllers.chomp_slip_workspace.chomp_utils.visual_utils import (
     print_terrain_height_candidates,
     visualize_chomp_result_on_terrain,
 )
+
+
+def _bootstrap_workspace_parent():
+    package_dir = Path(__file__).resolve().parent
+    parent_dir = package_dir.parent
+
+    for path in (str(parent_dir), str(package_dir)):
+        if path not in sys.path:
+            sys.path.insert(0, path)
+
+
+def _load_generic_simulator_class():
+    _bootstrap_workspace_parent()
+
+    failures = []
+    module_names = (
+        "simulation_workspace.core.simulator",
+        "base_controllers.simulation_workspace.core.simulator",
+    )
+
+    for module_name in module_names:
+        try:
+            module = __import__(module_name, fromlist=["GenericSimulator"])
+            return module.GenericSimulator
+        except ModuleNotFoundError as exc:
+            failures.append(f"{module_name}: {exc}")
+
+    failure_text = "\n".join(f"  - {failure}" for failure in failures)
+    raise RuntimeError(
+        "Could not import the simulation workspace GenericSimulator.\n"
+        f"{failure_text}"
+    )
+
+
+def _build_cost_simulator(terrain_type):
+    GenericSimulator = _load_generic_simulator_class()
+    simulator = GenericSimulator("tractor")
+    simulator.TERRAIN_TYPE = terrain_type
+
+    if hasattr(simulator, "start"):
+        simulator.start()
+
+    simulator.startSimulator()
+    simulator.loadModelAndPublishers()
+    return simulator
 
 def main():
 
@@ -65,7 +111,7 @@ def main():
     # ------------------------------
     # CHOMP algorithm configuration
     # ------------------------------
-    cost_name = "terrain_geometry"    # "slip_energy", "total_energy", "terrain_geometry"
+    cost_name = "slip_energy"    # "slip_energy", "total_energy", "terrain_geometry"
     gradient_name = "spsa"  # "spsa", "finite_difference", "analytic"
 
     chomp_config = ChompConfig(
@@ -120,6 +166,10 @@ def main():
     )
 
     terrain_manager = TerrainManager(mesh_path)
+    cost_simulator = None
+
+    if cost_name in {"slip_energy", "total_energy"}:
+        cost_simulator = _build_cost_simulator(terrain_type=terrain_type)
 
     # ==================================================
     # 2) COMPUTE TERRAIN HEIGHT GRID
@@ -159,6 +209,7 @@ def main():
             y_edges=y_edges,
             cost_name=cost_name,
             gradient_name=gradient_name,
+            simulator=cost_simulator,
             config=chomp_config,
         )
 

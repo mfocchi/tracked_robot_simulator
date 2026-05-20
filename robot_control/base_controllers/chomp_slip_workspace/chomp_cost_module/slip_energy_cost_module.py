@@ -6,12 +6,12 @@ import rospy as ros
 from base_controllers.tracked_robot.environment.trajectory import Trajectory
 from base_controllers.tracked_robot.utils import maxxi_constants as constants
 
-from base_controllers.chomp_slip_workspace.chomp_cost_module.base_cost_module import (
-    BaseCostModule,
+from base_controllers.chomp_slip_workspace.chomp_cost_module.simulation_backed_cost_module import (
+    SimulationBackedCostModule,
 )
 
 
-class SlipEnergyCostModule(BaseCostModule):
+class SlipEnergyCostModule(SimulationBackedCostModule):
     """
     Slippage energy cost module.
 
@@ -30,7 +30,7 @@ class SlipEnergyCostModule(BaseCostModule):
 
     name = "slip_energy"
 
-    def compute_cost(self, trajectory_reference, simulator):
+    def compute_cost_vector(self, trajectory_reference, simulator):
         """
         Compute slippage energy cost along a trajectory.
 
@@ -369,9 +369,12 @@ class SlipEnergyCostModule(BaseCostModule):
         Convenience method for CHOMP if it needs one scalar objective.
         """
 
-        cost_vector = self.compute_cost(
-            trajectory_reference=trajectory_reference,
-            simulator=simulator,
+        cost_vector = np.asarray(
+            self.compute_cost_vector(
+                trajectory_reference=trajectory_reference,
+                simulator=simulator,
+            ),
+            dtype=float,
         )
 
         if cost_vector.size == 0:

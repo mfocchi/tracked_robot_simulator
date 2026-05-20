@@ -31,6 +31,7 @@ def make_straight_line_initial_path(start_xy_m, goal_xy_m, n_knots):
 def setup_cost_module_context(
     cost_module,
     transform,
+    simulator=None,
     X=None,
     Y=None,
     Z=None,
@@ -62,6 +63,9 @@ def setup_cost_module_context(
                 yRange=yRange,
             )
 
+    if hasattr(cost_module, "set_simulator"):
+        cost_module.set_simulator(simulator)
+
     if hasattr(cost_module, "set_terrain_height_grid"):
         if X is None or Y is None or Z is None:
             raise ValueError(
@@ -81,6 +85,7 @@ def chomp_launch(
     y_edges=None,
     cost_name="terrain_geometry",
     gradient_name="finite_difference",
+    simulator=None,
     config=None,
 ):
     """
@@ -134,9 +139,16 @@ def chomp_launch(
     cost_module = make_cost_module(cost_name)
     gradient_module = make_gradient_module(gradient_name)
 
+    if getattr(cost_module, "requires_simulator", False) and simulator is None:
+        raise ValueError(
+            f"Cost module '{cost_module.name}' requires a simulator context. "
+            "Pass simulator=... to chomp_launch(...)."
+        )
+
     setup_cost_module_context(
         cost_module=cost_module,
         transform=transform,
+        simulator=simulator,
         X=X,
         Y=Y,
         Z=Z,

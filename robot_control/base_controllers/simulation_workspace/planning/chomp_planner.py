@@ -93,6 +93,7 @@ class ChompPlanner:
                 y_edges=grid["y_edges"],
                 cost_name=self._cost_name(),
                 gradient_name=self._gradient_name(),
+                simulator=self.sim,
                 config=config,
             )
 
