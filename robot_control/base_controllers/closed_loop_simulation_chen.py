@@ -68,7 +68,7 @@ class GenericSimulator(BaseController):
         #IMPORTANT if you set too far velocity goes beyond the limit of the NN training region and slippage estimators will not work!
         self.pf = np.array([220*0.02, 190*0.02, np.pi/4]) #0.02 is the conversion gain to convert units used in chomp_no_theta into meters
         self.PLANNING = 'chomp' # 'none',  'chomp', 'clothoids'
-        self.TERRAIN_TYPE = 'terrain_chen' #'terrain', 'sphere2' 'terrain_chen'
+        self.TERRAIN_TYPE = 'terrain' #'terrain', 'sphere2' 'terrain_chen'
         self.PLANNING_DURATION = 20.
         self.PLANNING_SPEED = 0.4
         self.SAVE_BAGS = False
@@ -309,44 +309,190 @@ class GenericSimulator(BaseController):
         for blob_x, blob_y in zip(des_x_vec, des_y_vec):
             self.ros_pub.add_marker(np.array([blob_x, blob_y, self.basePoseW[2]]), color="white", radius=0.5)
 
-    def getChomp(self, start, goal):
-        from tracked_robot.planners.chomp_no_theta import ChompSolverSlip, Params
+
+    def plotChompTraj3DSpheres(self, des_x_vec, des_y_vec, des_yaw_vec):
+        """
+        Plot CHOMP trajectory in RViz as spheres, but projected onto the 3D terrain.
+
+        The input trajectory is still 2D:
+            x, y, yaw
+
+        This function computes z internally by projecting each (x, y) point
+        onto the terrain mesh.
+        """
+
+        sphere_radius = 0.25
+        z_clearance = 0.03
+
+        for blob_x, blob_y, blob_yaw in zip(des_x_vec, des_y_vec, des_yaw_vec):
+            terrain_point, terrain_roll, terrain_pitch = self.terrainManager.project_on_mesh(
+                point=np.array([blob_x, blob_y]),
+                direction=np.array([0., 0., 1.]),
+                base_yaw=blob_yaw
+            )
+
+            marker_position = terrain_point.copy()
+
+            # Lift the sphere so it is not half-inside the terrain.
+            marker_position[2] += sphere_radius + z_clearance
+
+            self.ros_pub.add_marker(
+                marker_position,
+                color="white",
+                radius=sphere_radius
+            )
+
+
+    # def getChomp(self, start, goal):
+    #     from tracked_robot.planners.chomp_no_theta import ChompSolverSlip, Params
+    #     ch = ChompSolver()
+    #     # -------------------------------
+    #     # 1) Create a map
+    #     # -------------------------------
+    #     # obstacles: list of dicts with X, Y in world coordinates
+    #     if self.OBSTACLES:
+    #         obstacles = [{"X": np.array([150, 350, 350, 150]),
+    #                       "Y": np.array([50, 50, 150, 150])},
+    #                      {"X": np.array([200, 300, 250]),
+    #                       "Y": np.array([300, 300, 400])}, ]
+    #     else:
+    #         obstacles = []
+    #     # map origin
+    #     xRange = np.array([0.0, 500.0])
+    #     yRange = np.array([0.0, 500.0])
+    #     rows = 2000
+    #     cols = 2000
+    #     epsilon = 50.0
+    #     M = ch.constructMap(xRange, yRange, rows, cols, obstacles, epsilon)
+    #
+    #     # create metric stl for rviz
+    #     # your current world extents (in "world units")
+    #     xL_world = xRange[1] - xRange[0]
+    #     yL_world = yRange[1] - yRange[0]
+    #
+    #     # desired real size in meters
+    #     xL_m_des = 10.0  # e.g. want the map width to be 50m
+    #     yL_m_des = 10.0
+    #
+    #     # meter to world_unit
+    #     sx = xL_m_des / xL_world
+    #     sy = yL_m_des / yL_world
+    #     if self.OBSTACLES:
+    #         import rospkg
+    #         ch.obstacles_to_stl_scaled(obstacles, rospkg.RosPack().get_path('tractor_description') + '/meshes/obstacles.stl',
+    #                                    height_m=2.0, sx=sx, sy=sy)
+    #
+    #     params = Params(
+    #         DOF=2,
+    #         lambda_=200.0,
+    #         eta=0.001,
+    #         MAX_ITER=100,
+    #         TOL=1.0,
+    #         dT=1.0,
+    #         t0=0.0,
+    #         tf=self.PLANNING_DURATION,
+    #         convex_hull_contact=True,
+    #     )
+    #
+    #     # map from metric to world units (expt for theta)
+    #     q_start = start.copy()
+    #     q_start[:2] /=sx
+    #     q_goal = goal.copy()
+    #     q_goal[:2] /= sy
+    #
+    #     # polygon in base frame (world units)
+    #     #robot size
+    #     w = 60.0
+    #     h = 40.0
+    #     X = np.array([-w / 2, w / 2, w / 2, -w / 2], dtype=float)
+    #     Y = np.array([-h / 2, -h / 2, h / 2, h / 2], dtype=float)
+    #     robot = ch.createRobot(X, Y, q_start, M, params.convex_hull_contact)
+    #
+    #     # --------------------------------
+    #     # 3) Initial straight-line trajectory fro
+    #     # --------------------------------
+    #     T = int(params.tf / params.dT)
+    #     xi0 = np.zeros((T, params.DOF), dtype=float)
+    #     xi0[:, 0] = np.linspace(q_start[0], q_goal[0], T)
+    #     xi0[:, 1] = np.linspace(q_start[1], q_goal[1], T)
+    #
+    #     optimized_xi = ch.optimize(xi0, M, params, robot)
+    #
+    #     # map backl from world units to meters
+    #     optimized_xi_meters = optimized_xi.copy()
+    #     optimized_xi_meters[:, 0] *= sx
+    #     optimized_xi_meters[:, 1] *= sy
+    #
+    #     # compute velocities
+    #     dx = np.diff(optimized_xi_meters[:, 0])
+    #     dy = np.diff(optimized_xi_meters[:, 1])
+    #     dtheta = np.diff(np.unwrap(optimized_xi_meters[:, 2]))
+    #
+    #     # append last value to keep same length N of optimized_xi_meters
+    #     dx = np.append(dx, dx[-1])
+    #     dy = np.append(dy, dy[-1])
+    #     dtheta = np.append(dtheta, dtheta[-1])
+    #
+    #     v_des = np.hypot(dx, dy) / params.dT
+    #     omega_des = dtheta / params.dT
+    #
+    #     plt.figure()
+    #     plt.plot(v_des, "bo-", linewidth=2, markersize=2, label="long")
+    #     plt.ylim([-1, 1])
+    #     plt.grid(True)
+    #     plt.ylabel("v")
+    #
+    #     plt.figure()
+    #     plt.plot(omega_des, "ro-", linewidth=1, markersize=1, label="omega")
+    #     plt.ylabel("omega")
+    #     plt.ylim([-1, 1])
+    #     plt.grid(True)
+    #     plt.axis("equal")
+    #     plt.show()
+    #
+    #     return optimized_xi_meters[:, 0], optimized_xi_meters[:, 1], optimized_xi_meters[:, 2], v_des, omega_des, params.dT
+
+    def getChomp(self, start, goal, return_history=False, save_every=1):
+
+        from tracked_robot.planners.chomp_no_theta import ChompSolver, Params
+
         ch = ChompSolver()
-        # -------------------------------
-        # 1) Create a map
-        # -------------------------------
-        # obstacles: list of dicts with X, Y in world coordinates
-        if self.OBSTACLES:
-            obstacles = [{"X": np.array([150, 350, 350, 150]),
-                          "Y": np.array([50, 50, 150, 150])},
-                         {"X": np.array([200, 300, 250]),
-                          "Y": np.array([300, 300, 400])}, ]
-        else:
-            obstacles = []
-        # map origin
-        xRange = np.array([0.0, 500.0])
-        yRange = np.array([0.0, 500.0])
+
+        # --------------------------------------------------
+        # 1) CHOMP internal map coordinates
+        # --------------------------------------------------
+        xRange_world = np.array([0.0, 500.0])
+        yRange_world = np.array([0.0, 500.0])
+
         rows = 2000
         cols = 2000
         epsilon = 50.0
-        M = ch.constructMap(xRange, yRange, rows, cols, obstacles, epsilon)
 
-        # create metric stl for rviz
-        # your current world extents (in "world units")
-        xL_world = xRange[1] - xRange[0]
-        yL_world = yRange[1] - yRange[0]
+        # --------------------------------------------------
+        # 2) Real terrain coordinates in meters
+        # --------------------------------------------------
+        # These should match the real terrain mesh range.
+        xRange_m = np.array([-20.0, 20.0])
+        yRange_m = np.array([-20.0, 20.0])
 
-        # desired real size in meters
-        xL_m_des = 10.0  # e.g. want the map width to be 50m
-        yL_m_des = 10.0
+        sx = (xRange_m[1] - xRange_m[0]) / (xRange_world[1] - xRange_world[0])
+        sy = (yRange_m[1] - yRange_m[0]) / (yRange_world[1] - yRange_world[0])
 
-        # meter to world_unit
-        sx = xL_m_des / xL_world
-        sy = yL_m_des / yL_world
-        if self.OBSTACLES:
-            import rospkg
-            ch.obstacles_to_stl_scaled(obstacles, rospkg.RosPack().get_path('tractor_description') + '/meshes/obstacles.stl',
-                                       height_m=2.0, sx=sx, sy=sy)
+        # --------------------------------------------------
+        # 3) Obstacles
+        # --------------------------------------------------
+        # Currently no obstacles. Therefore CHOMP will mostly smooth the path.
+        # Terrain height is not used as a CHOMP cost yet.
+        obstacles = []
+
+        M = ch.constructMap(
+            xRange_world,
+            yRange_world,
+            rows,
+            cols,
+            obstacles,
+            epsilon
+        )
 
         params = Params(
             DOF=2,
@@ -360,41 +506,125 @@ class GenericSimulator(BaseController):
             convex_hull_contact=True,
         )
 
-        # map from metric to world units (expt for theta)
+        # --------------------------------------------------
+        # 4) Convert start and goal from meters to CHOMP units
+        # --------------------------------------------------
         q_start = start.copy()
-        q_start[:2] /=sx
         q_goal = goal.copy()
-        q_goal[:2] /= sy
 
-        # polygon in base frame (world units)
-        #robot size
+        q_start_world = q_start.copy()
+        q_goal_world = q_goal.copy()
+
+        q_start_world[0] = (q_start[0] - xRange_m[0]) / sx + xRange_world[0]
+        q_start_world[1] = (q_start[1] - yRange_m[0]) / sy + yRange_world[0]
+
+        q_goal_world[0] = (q_goal[0] - xRange_m[0]) / sx + xRange_world[0]
+        q_goal_world[1] = (q_goal[1] - yRange_m[0]) / sy + yRange_world[0]
+
+        print(colored("CHOMP coordinate conversion:", "cyan"))
+        print(f"start meters = {q_start[:2]}  -> world = {q_start_world[:2]}")
+        print(f"goal meters  = {q_goal[:2]}  -> world = {q_goal_world[:2]}")
+
+        # --------------------------------------------------
+        # 5) Robot footprint in CHOMP world units
+        # --------------------------------------------------
         w = 60.0
         h = 40.0
+
         X = np.array([-w / 2, w / 2, w / 2, -w / 2], dtype=float)
         Y = np.array([-h / 2, -h / 2, h / 2, h / 2], dtype=float)
-        robot = ch.createRobot(X, Y, q_start, M, params.convex_hull_contact)
 
-        # --------------------------------
-        # 3) Initial straight-line trajectory fro
-        # --------------------------------
+        robot = ch.createRobot(
+            X,
+            Y,
+            q_start_world,
+            M,
+            params.convex_hull_contact
+        )
+
+        # --------------------------------------------------
+        # 6) Initial straight-line trajectory in CHOMP units
+        # --------------------------------------------------
         T = int(params.tf / params.dT)
+
         xi0 = np.zeros((T, params.DOF), dtype=float)
-        xi0[:, 0] = np.linspace(q_start[0], q_goal[0], T)
-        xi0[:, 1] = np.linspace(q_start[1], q_goal[1], T)
+        xi0[:, 0] = np.linspace(q_start_world[0], q_goal_world[0], T)
+        xi0[:, 1] = np.linspace(q_start_world[1], q_goal_world[1], T)
 
-        optimized_xi = ch.optimize(xi0, M, params, robot)
+        # --------------------------------------------------
+        # 7) Run CHOMP
+        # --------------------------------------------------
+        if return_history:
+            optimized_xi, chomp_history_world = ch.optimize(
+                xi0,
+                M,
+                params,
+                robot,
+                return_history=True,
+                save_every=save_every
+            )
+        else:
+            optimized_xi = ch.optimize(
+                xi0,
+                M,
+                params,
+                robot
+            )
+            chomp_history_world = []
 
-        # map backl from world units to meters
-        optimized_xi_meters = optimized_xi.copy()
-        optimized_xi_meters[:, 0] *= sx
-        optimized_xi_meters[:, 1] *= sy
+        # --------------------------------------------------
+        # 8) Convert optimized path back to meters
+        # --------------------------------------------------
+        optimized_xi_meters_xy = np.zeros_like(optimized_xi)
 
-        # compute velocities
+        optimized_xi_meters_xy[:, 0] = (
+                (optimized_xi[:, 0] - xRange_world[0]) * sx + xRange_m[0]
+        )
+
+        optimized_xi_meters_xy[:, 1] = (
+                (optimized_xi[:, 1] - yRange_world[0]) * sy + yRange_m[0]
+        )
+
+        # --------------------------------------------------
+        # 9) Convert CHOMP history back to meters
+        # --------------------------------------------------
+        chomp_history_m = []
+
+        if return_history:
+            for xi_world in chomp_history_world:
+                xi_m = np.zeros_like(xi_world)
+
+                xi_m[:, 0] = (
+                        (xi_world[:, 0] - xRange_world[0]) * sx + xRange_m[0]
+                )
+
+                xi_m[:, 1] = (
+                        (xi_world[:, 1] - yRange_world[0]) * sy + yRange_m[0]
+                )
+
+                chomp_history_m.append(xi_m.copy())
+
+        # --------------------------------------------------
+        # 10) Compute yaw from path direction
+        # --------------------------------------------------
+        dx_yaw = np.gradient(optimized_xi_meters_xy[:, 0])
+        dy_yaw = np.gradient(optimized_xi_meters_xy[:, 1])
+
+        yaw_vec = np.arctan2(dy_yaw, dx_yaw)
+
+        optimized_xi_meters = np.column_stack((
+            optimized_xi_meters_xy[:, 0],
+            optimized_xi_meters_xy[:, 1],
+            yaw_vec
+        ))
+
+        # --------------------------------------------------
+        # 11) Compute desired v and omega
+        # --------------------------------------------------
         dx = np.diff(optimized_xi_meters[:, 0])
         dy = np.diff(optimized_xi_meters[:, 1])
         dtheta = np.diff(np.unwrap(optimized_xi_meters[:, 2]))
 
-        # append last value to keep same length N of optimized_xi_meters
         dx = np.append(dx, dx[-1])
         dy = np.append(dy, dy[-1])
         dtheta = np.append(dtheta, dtheta[-1])
@@ -402,22 +632,49 @@ class GenericSimulator(BaseController):
         v_des = np.hypot(dx, dy) / params.dT
         omega_des = dtheta / params.dT
 
-        plt.figure()
-        plt.plot(v_des, "bo-", linewidth=2, markersize=2, label="long")
-        plt.ylim([-1, 1])
-        plt.grid(True)
-        plt.ylabel("v")
+        # --------------------------------------------------
+        # 12) Optional diagnostic velocity plots
+        # --------------------------------------------------
+        PLOT_VELOCITIES = False
 
-        plt.figure()
-        plt.plot(omega_des, "ro-", linewidth=1, markersize=1, label="omega")
-        plt.ylabel("omega")
-        plt.ylim([-1, 1])
-        plt.grid(True)
-        plt.axis("equal")
-        plt.show()
+        if PLOT_VELOCITIES:
+            plt.figure()
+            plt.plot(v_des, "bo-", linewidth=2, markersize=2, label="long")
+            plt.ylim([-1, 1])
+            plt.grid(True)
+            plt.ylabel("v")
+            plt.legend()
 
-        return optimized_xi_meters[:, 0], optimized_xi_meters[:, 1], optimized_xi_meters[:, 2], v_des, omega_des, params.dT
+            plt.figure()
+            plt.plot(omega_des, "ro-", linewidth=1, markersize=1, label="omega")
+            plt.ylabel("omega")
+            plt.ylim([-1, 1])
+            plt.grid(True)
+            plt.legend()
+            plt.show()
 
+        # --------------------------------------------------
+        # 13) Return with or without history
+        # --------------------------------------------------
+        if return_history:
+            return (
+                optimized_xi_meters[:, 0],
+                optimized_xi_meters[:, 1],
+                optimized_xi_meters[:, 2],
+                v_des,
+                omega_des,
+                params.dT,
+                chomp_history_m
+            )
+
+        return (
+            optimized_xi_meters[:, 0],
+            optimized_xi_meters[:, 1],
+            optimized_xi_meters[:, 2],
+            v_des,
+            omega_des,
+            params.dT
+        )
 
     def deregister_node(self):
         os.system("killall rosmaster gzserver gzclient rviz")
@@ -730,7 +987,7 @@ class GenericSimulator(BaseController):
         b_vel_x = b_vel_xy[0]
         v = np.linalg.norm(b_vel_xy)
 
-        # compute turning radius for logging
+        # compute turning radius for logging_utils
         # in the case radius is infinite, betas are zero (this is to avoid Nans)
         if (abs(omega) < 1e-05) and (abs(v) > 1e-05):
             radius = 1e08 * np.sign(v)
@@ -1025,7 +1282,7 @@ def main_loop(p):
             p.tau_ffwd = np.zeros(p.robot.na)
             p.q_des = p.q_des + p.qd_des * conf.robot_params[p.robot_name]['dt']
 
-            # this is just for logging
+            # this is just for logging_utils
             p.des_x, p.des_y, p.des_theta, p.v_d, p.omega_d, p.v_dot_d, p.omega_dot_d, _ = p.traj.evalTraj(p.time)
             #senting it to be tracked from the impedance loop
             p.send_des_jstate(p.q_des, p.qd_des, p.tau_ffwd)

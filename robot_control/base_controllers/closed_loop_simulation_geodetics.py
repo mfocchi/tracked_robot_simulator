@@ -1241,7 +1241,7 @@ class GenericSimulator(BaseController):
         b_vel_x = b_vel_xy[0]
         v = np.linalg.norm(b_vel_xy)
 
-        # compute turning radius for logging
+        # compute turning radius for logging_utils
         # in the case radius is infinite, betas are zero (this is to avoid Nans)
         if (abs(omega) < 1e-05) and (abs(v) > 1e-05):
             radius = 1e08 * np.sign(v)
@@ -1548,7 +1548,7 @@ def main_loop(p):
 
             p.q_des = p.q_des + p.qd_des * conf.robot_params[p.robot_name]['dt']
 
-            # this is just for logging
+            # this is just for logging_utils
             p.des_x, p.des_y, p.des_theta, p.v_d, p.omega_d, p.v_dot_d, p.omega_dot_d, _ = p.traj.evalTraj(p.time)
             #senting it to be tracked from the impedance loop
             p.send_des_jstate(p.q_des, p.qd_des, p.tau_ffwd)

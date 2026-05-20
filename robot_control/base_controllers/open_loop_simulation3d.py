@@ -2,7 +2,10 @@ import numpy as np
 from base_controllers.tracked_robot.simulator.tracked_vehicle import TrackedVehicle, VehicleParam
 from base_controllers.tracked_robot.simulator.track import TrackParams
 import matplotlib
-matplotlib.use('TkAgg')
+try:
+    matplotlib.use("QtAgg")
+except Exception:
+    pass
 from matplotlib import pyplot as plt
 from  base_controllers.tracked_robot.environment.trajectory import Trajectory, ModelsList
 import base_controllers.tracked_robot.utils.maxxi_constants as constants

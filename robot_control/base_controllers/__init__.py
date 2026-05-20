@@ -6,4 +6,7 @@ np.set_printoptions(threshold=np.inf, precision = 5, linewidth = 10000, suppress
 sys.dont_write_bytecode = True
 # for new versions of pycharm
 import matplotlib
-matplotlib.use('TkAgg')
+try:
+    matplotlib.use("QtAgg")
+except Exception:
+    pass

@@ -779,7 +779,7 @@ class GenericSimulator(BaseController):
         b_vel_x = b_vel_xy[0]
         v = np.linalg.norm(b_vel_xy)
 
-        # compute turning radius for logging
+        # compute turning radius for logging_utils
         # in the case radius is infinite, betas are zero (this is to avoid Nans)
         if (abs(omega) < 1e-05) and (abs(v) > 1e-05):
             radius = 1e08 * np.sign(v)

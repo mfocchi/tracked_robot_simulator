@@ -1,7 +1,11 @@
 import numpy as np
 from termcolor import colored
 import matplotlib
-matplotlib.use('TkAgg')
+import matplotlib
+try:
+    matplotlib.use("QtAgg")
+except Exception:
+    pass
 from matplotlib import pyplot as plt #need to import as last to avoid issues with qt
 np.set_printoptions(threshold=np.inf, precision = 9, linewidth = 10000, suppress = True)
 

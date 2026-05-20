@@ -1,2 +1,5 @@
 import matplotlib
-matplotlib.use('TkAgg')
+try:
+    matplotlib.use("QtAgg")
+except Exception:
+    pass

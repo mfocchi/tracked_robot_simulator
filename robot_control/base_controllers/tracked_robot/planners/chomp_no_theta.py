@@ -1,6 +1,9 @@
 import numpy as np
 import matplotlib
-matplotlib.use('TkAgg')
+try:
+    matplotlib.use("QtAgg")
+except Exception:
+    pass
 import matplotlib.pyplot as plt
 from dataclasses import dataclass
 from scipy.sparse import kron, eye, diags, csc_matrix
@@ -831,51 +834,52 @@ class ChompSolver:
         mesh.export(out_stl_path)
         return out_stl_path
 
-    def optimize(self, xi0, M, params, robot):
-        # plot
-        plt.ion()
-        h_image_metric = self.plotMap(M)
-        plt.figure(h_image_metric.number)
-        # plot initial trajectory
-        plt.plot(xi0[:, 0], xi0[:, 1], "ko-", linewidth=2, label="Initial")
-        # optimize
-        optimized_xi = self.chompSolve(params, robot, M, xi0, h_image_metric)
-        plt.figure(h_image_metric.number)
-        # plot optimized trajectory
-        plt.plot(optimized_xi[:, 0], optimized_xi[:, 1], "ro-", linewidth=2, label="CHOMP")
-        plt.legend()
-        plt.grid(True)
-        plt.axis("equal")
+def optimize(self, xi0, M, params, robot, return_history=False, save_every=1, callback=None):
+    # plot
+    plt.ion()
+    h_image_metric = self.plotMap(M)
+    plt.figure(h_image_metric.number)
+    # plot initial trajectory
+    plt.plot(xi0[:, 0], xi0[:, 1], "ko-", linewidth=2, label="Initial")
+    # optimize
+    optimized_xi = self.chompSolve(params, robot, M, xi0, h_image_metric)
+    plt.figure(h_image_metric.number)
+    # plot optimized trajectory
+    plt.plot(optimized_xi[:, 0], optimized_xi[:, 1], "ro-", linewidth=2, label="CHOMP")
+    plt.legend()
+    plt.grid(True)
+    plt.axis("equal")
 
-        # plot orientation (debug)
-        # compute tangent angle
-        # N = optimized_xi.shape[0]
-        # theta_des = np.zeros(N)
-        # xs = optimized_xi[:, 0]
-        # ys = optimized_xi[:, 1]
-        # for t in range(1, optimized_xi.shape[0] - 1):
-        #     dx = xs[t + 1] - xs[t - 1]
-        #     dy = ys[t + 1] - ys[t - 1]
-        #     theta_des[t] = math.atan2(dy, dx)
-        # # copy into initial and final sample the neightbours
-        # theta_des[0] = theta_des[1]
-        # theta_des[N - 1] = theta_des[N - 2]
-        #
-        # plt.figure()
-        # plt.plot(theta_des, "bo-", linewidth=2, markersize=2, label="TANGENT")
-        # plt.plot(optimized_xi[:, 2], "ro-", linewidth=1, markersize=1, label="CHOMP")
-        # plt.grid(True)
-        # plt.title("Theta plot")
-        # plt.ylabel('theta [rad]')
-        # plt.axis("equal")
-        # plt.show()
+    # plot orientation (debug)
+    # compute tangent angle
+    # N = optimized_xi.shape[0]
+    # theta_des = np.zeros(N)
+    # xs = optimized_xi[:, 0]
+    # ys = optimized_xi[:, 1]
+    # for t in range(1, optimized_xi.shape[0] - 1):
+    #     dx = xs[t + 1] - xs[t - 1]
+    #     dy = ys[t + 1] - ys[t - 1]
+    #     theta_des[t] = math.atan2(dy, dx)
+    # # copy into initial and final sample the neightbours
+    # theta_des[0] = theta_des[1]
+    # theta_des[N - 1] = theta_des[N - 2]
+    #
+    # plt.figure()
+    # plt.plot(theta_des, "bo-", linewidth=2, markersize=2, label="TANGENT")
+    # plt.plot(optimized_xi[:, 2], "ro-", linewidth=1, markersize=1, label="CHOMP")
+    # plt.grid(True)
+    # plt.title("Theta plot")
+    # plt.ylabel('theta [rad]')
+    # plt.axis("equal")
+    # plt.show()
 
-        return optimized_xi
+    return optimized_xi
+
 
 # If you want to run it directly:
 if __name__ == "__main__":
 
-    ch = ChompSolver()
+    ch = ChompSolverSlip()
     # -------------------------------
     # 1) Create a map (as in script)
     # -------------------------------

@@ -177,7 +177,19 @@ class Track:
 
         #compute shear displacements  in x y direction (TODO SHOUD BE DIFFERENT FOR LEFT RIGHT TRACK!)
         v_sprocket = omega_sprocket*r
-        theta = (omega*(L/2 - x))/(v_sprocket)
+
+        #safer version to avoid ERROR: division by zero
+        eps = 1e-6
+
+        v_sprocket_safe = np.where(
+            np.abs(v_sprocket) < eps,
+            eps * np.sign(v_sprocket + eps),
+            v_sprocket
+        )
+
+        theta = (omega * (L / 2 - x)) / v_sprocket_safe
+
+
         if(omega == 0.0 and omega_sprocket != 0.0):
             j_x = (u - v_sprocket - omega * y) * (L/2 - x) / v_sprocket
             j_y = (v * (L/2 - x) + (omega/2)*(math.pow(L,2)/4 - np.power(x,2))) / v_sprocket
